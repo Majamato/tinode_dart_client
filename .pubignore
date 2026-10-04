@@ -1,0 +1,8 @@
+# .pubignore replaces .gitignore for `dart pub publish`, so repeat its entries.
+.dart_tool/
+pubspec.lock
+.fvm/
+
+# Internal files that should not ship to pub.dev.
+.fvmrc
+.github/

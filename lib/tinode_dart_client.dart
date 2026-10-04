@@ -1,8 +1,19 @@
-/// Support for doing something awesome.
-///
-/// More dartdocs go here.
+/// A pure-Dart client for the [Tinode](https://github.com/tinode/chat) chat
+/// server, speaking its JSON-over-WebSocket protocol.
 library;
 
-export 'src/tinode_dart_client_base.dart';
-
-// TODO: Export any libraries intended for clients of this package.
+export 'src/client/results.dart';
+export 'src/client/tinode_client.dart';
+export 'src/client/tinode_config.dart';
+export 'src/errors.dart';
+export 'src/json/json_reader.dart' show Json;
+export 'src/model/access_mode.dart';
+export 'src/model/drafty.dart';
+export 'src/model/message_content.dart';
+export 'src/model/message_head.dart';
+export 'src/model/private_settings.dart';
+export 'src/model/profile.dart';
+export 'src/model/subscription.dart';
+export 'src/model/topic_description.dart';
+export 'src/model/topic_kind.dart';
+export 'src/protocol/server/server_message.dart';

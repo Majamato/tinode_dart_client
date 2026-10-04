@@ -1,0 +1,13 @@
+# Integration tests need a running Tinode server; run them with
+# `dart test -P integration` (see ../tinode-tests for a local one).
+tags:
+  integration:
+    skip: Needs a Tinode server, run with -P integration.
+    timeout: 30s
+
+presets:
+  integration:
+    include_tags: integration
+    tags:
+      integration:
+        skip: false
