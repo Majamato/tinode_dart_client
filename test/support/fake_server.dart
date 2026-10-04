@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:test/test.dart';
 import 'package:tinode_dart_client/tinode_dart_client.dart';
 import 'package:web_socket/testing.dart';
 import 'package:web_socket/web_socket.dart';
@@ -16,27 +18,58 @@ final class FakeServer {
 
   FakeServer._(this.client, this._socket) {
     _socket.events.listen((event) {
-      if (event case TextDataReceived(:final text)) {
-        _received.add(jsonDecode(text) as Json);
+      switch (event) {
+        case TextDataReceived(:final text):
+          _inbox.add(jsonDecode(text) as Json);
+          _arrived?.complete();
+          _arrived = null;
+        case CloseReceived(:final code):
+          _closed.complete(code);
+        case BinaryDataReceived():
       }
     });
   }
 
   final WebSocket client;
   final WebSocket _socket;
-  final _received = StreamController<Json>.broadcast();
 
-  /// Waits for the next client packet of type [name] and returns its body.
+  /// Client packets not yet taken by [next], in arrival order.
+  final _inbox = <Json>[];
+  Completer<void>? _arrived;
+  final _closed = Completer<int>();
+
+  /// Completes with the close code once the client closes the socket.
+  Future<int> get closedByClient => _closed.future;
+
+  /// Takes the oldest client packet of type [name] and returns its body,
+  /// failing the test if none arrives in time.
   Future<Json> next(String name) async {
-    final packet = await _received.stream.firstWhere(
-      (p) => p.containsKey(name),
+    Future<Json> take() async {
+      while (true) {
+        final i = _inbox.indexWhere((p) => p.containsKey(name));
+        if (i != -1) return _inbox.removeAt(i)[name]! as Json;
+        await (_arrived ??= Completer()).future;
+      }
+    }
+
+    return take().timeout(
+      const Duration(seconds: 1),
+      onTimeout: () => fail('no $name packet arrived; inbox: $_inbox'),
     );
-    return packet[name]! as Json;
+  }
+
+  /// Fails the test if the client sent anything [next] did not take.
+  Future<void> expectNoMorePackets() async {
+    // Fake socket delivery is async; let in-flight packets land first.
+    await Future<void>.delayed(Duration.zero);
+    expect(_inbox, isEmpty, reason: 'unexpected client packets');
   }
 
   void send(Json packet) => _socket.sendText(jsonEncode(packet));
 
   void sendRaw(String frame) => _socket.sendText(frame);
+
+  void sendBinary(Uint8List bytes) => _socket.sendBytes(bytes);
 
   void ctrl(Json request, {int code = 200, Json? params, String? topic}) =>
       send({

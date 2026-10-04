@@ -131,8 +131,9 @@ final class Connection {
       CtrlMessage(:final id) || MetaMessage(:final id) => id,
       _ => null,
     };
-    if (_pending.remove(id) case final pending?) {
-      pending.complete(message);
+    if (id != null) {
+      // A reply whose request timed out has no waiter left; drop it.
+      _pending.remove(id)?.complete(message);
     } else if (message is DataMessage && _history[message.topic] != null) {
       _history[message.topic]!.messages.add(message);
     } else {

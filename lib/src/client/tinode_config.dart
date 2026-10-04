@@ -24,7 +24,7 @@ final class TinodeConfig {
   final Duration requestTimeout;
 
   Uri get channelsUri => server.replace(
-    path: '${server.path}/v0/channels',
+    path: '${server.path.replaceFirst(RegExp(r'/+$'), '')}/v0/channels',
     queryParameters: {...server.queryParameters, 'apikey': apiKey},
   );
 }

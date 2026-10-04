@@ -40,8 +40,17 @@ void main() {
     });
 
     test('anything else is kept as unknown', () {
-      expect(MessageContent.fromJson(3), const UnknownContent(3));
-      expect(const UnknownContent(3).text, isEmpty);
+      for (final raw in [
+        3,
+        null,
+        true,
+        <Object?>['a'],
+      ]) {
+        final content = MessageContent.fromJson(raw);
+        expect(content, UnknownContent(raw));
+        expect(content.text, isEmpty);
+        expect(content.toJson(), raw);
+      }
     });
 
     test('Drafty serialises back without default values', () {
@@ -89,7 +98,26 @@ void main() {
       expect(profile.raw['x-example-com-role'], 'admin');
     });
 
-    test('only objects parse; fnd puts a query string in public', () {
+    test('an empty object or a non-object photo gives no fields', () {
+      expect(Profile.fromJson({}), const Profile());
+      expect(Profile.fromJson({'photo': 'a.jpg'}).photo, isNull);
+    });
+
+    test('tryParse reads only objects', () {
+      expect(
+        Profile.tryParse({'fn': 'Alice'}),
+        const Profile(name: 'Alice', raw: {'fn': 'Alice'}),
+      );
+      for (final value in [
+        null,
+        3,
+        <Object?>['Alice'],
+      ]) {
+        expect(Profile.tryParse(value), isNull);
+      }
+    });
+
+    test('tryParse skips the query string fnd keeps in public', () {
       expect(Profile.tryParse('alice, bob'), isNull);
     });
   });
@@ -119,11 +147,29 @@ void main() {
 
   group('TopicKind', () {
     test('derives the kind from the name', () {
-      expect(TopicKind.of('me'), TopicKind.account);
-      expect(TopicKind.of('usrS8SZdtb3xS0'), TopicKind.direct);
-      expect(TopicKind.of('grpmiKBkQVXnm3P'), TopicKind.group);
-      expect(TopicKind.of('chnmiKBkQVXnm3P'), TopicKind.channel);
-      expect(TopicKind.of('zzz'), TopicKind.unknown);
+      const kinds = {
+        'me': TopicKind.account,
+        'fnd': TopicKind.search,
+        'slf': TopicKind.notes,
+        'sys': TopicKind.system,
+        'usrS8SZdtb3xS0': TopicKind.direct,
+        'p2pS8SZdtb3xS0': TopicKind.direct,
+        'grpmiKBkQVXnm3P': TopicKind.group,
+        'new': TopicKind.group,
+        'newKBkQVXnm3P': TopicKind.group,
+        'chnmiKBkQVXnm3P': TopicKind.channel,
+        'nch': TopicKind.channel,
+        'zzz': TopicKind.unknown,
+        '': TopicKind.unknown,
+      };
+      for (final MapEntry(key: name, value: kind) in kinds.entries) {
+        expect(TopicKind.of(name), kind, reason: name);
+      }
+    });
+
+    test('the fixed names match exactly', () {
+      expect(TopicKind.of('mee'), TopicKind.unknown);
+      expect(TopicKind.of('fndx'), TopicKind.unknown);
     });
   });
 }
