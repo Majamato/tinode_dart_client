@@ -47,3 +47,13 @@ final class MalformedPacketException extends TinodeException {
   @override
   String toString() => 'MalformedPacketException($path: $value)';
 }
+
+/// Opening the socket failed; [error] is the platform's own exception.
+final class ServerUnreachableException extends TinodeException {
+  const ServerUnreachableException(this.error);
+
+  final Object error;
+
+  @override
+  String toString() => 'ServerUnreachableException($error)';
+}

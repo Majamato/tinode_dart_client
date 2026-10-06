@@ -14,8 +14,10 @@ protocol docs. Fields and enum values use plain words instead of the wire abbrev
 
 **Session**
 One network connection to the server: here, one WebSocket. A user can have several sessions open
-at once (phone, laptop, web). There is no logout; closing the connection ends the session.
-*In this package:* one `TinodeClient`.
+at once (phone, laptop, web). There is no logout; closing the connection ends the session. The
+server forgets a session's attached topics when it ends; the next one starts from `hi`.
+*In this package:* one socket inside a `TinodeClient`. After a drop the client opens a new session
+and restores the old one's login and attached topics, see [Reconnect](#reconnect).
 
 **User**
 An account. Each user has a **user ID** such as `usrMMHQIDZI0e8`. User IDs are URL-safe base64
@@ -336,8 +338,9 @@ How a login is checked:
 
 **Token**
 Returned by a successful login together with `expires`. Use it with the `token` scheme until it
-expires.
-*In this package:* `LoginResult.token` and `LoginResult.expires`.
+expires. Every login, a token login included, renews the expiry, so always keep the newest one.
+*In this package:* `LoginResult.token` and `LoginResult.expires`; after a reconnect, the new one
+is in `Connected.login`.
 
 **authlvl**
 The authentication level the session reached: `auth`, `anon` or `root`.
@@ -391,6 +394,37 @@ A string identifying the client app, e.g. `MyApp/1.0`. It is sent in `hi` and sh
 | `call` | video/audio call signalling | `call` |
 
 *In this package:* `InfoMessage.event` (an `InfoEvent`).
+
+---
+
+## Connection
+
+**Reconnect**
+Not a protocol feature: the client does it. When the socket drops, it waits, opens a new
+session, sends `hi`, logs in with the latest token and attaches the same topics again (`me`
+first). Waits grow with full-jitter exponential backoff (random in `[0, min(cap, base·2^n))`), so
+clients that dropped together don't return together. Nothing sent to you while you were away is
+replayed: fetch the gap with `get data` and `since`.
+*In this package:* `ReconnectPolicy`, `TinodeClient.resume`.
+*Avoid:* "retry" for this; a retry is one more attempt within a reconnect.
+
+**Connection status**
+Where the client's link stands: `Connected`, `Reconnecting` (with the attempt and the wait),
+`Suspended` (closed on purpose, e.g. in the background) or `Disconnected` (final: closed by the app,
+or the server refused the session, such as an expired token).
+*In this package:* `ConnectionStatus`, `TinodeClient.status` and `statusChanges`.
+
+**Probe**
+A bare `1` frame; the server answers `0`. Mobile networks can kill a socket without closing it, so
+after a quiet spell the client probes, and a probe without any answer ends the socket. After the
+OS reports a network change a dead socket is likely, so that probe can use a shorter deadline.
+*In this package:* `TinodeConfig.probeAfter` and `probeTimeout`; `resume` probes a live link,
+with its own `probeTimeout` if given.
+
+**Lost topic**
+An attached topic that the server refuses to attach again after a reconnect, e.g. because you
+were removed meanwhile.
+*In this package:* `Connected.lostTopics`, with the server's refusal.
 
 ---
 

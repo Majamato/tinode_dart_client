@@ -2,6 +2,9 @@
 /// server, speaking its JSON-over-WebSocket protocol.
 library;
 
+export 'src/client/connection_status.dart';
+export 'src/client/connection_supervisor.dart' show SocketConnector;
+export 'src/client/reconnect_policy.dart';
 export 'src/client/results.dart';
 export 'src/client/tinode_client.dart';
 export 'src/client/tinode_config.dart';

@@ -44,6 +44,15 @@ final class ServerInfo with ValueObject {
 final class LoginResult with ValueObject {
   const LoginResult({required this.userId, required this.token, this.expires});
 
+  factory LoginResult.fromParams(Json params) {
+    final r = StrictJson(params);
+    return LoginResult(
+      userId: r.require('user', 'ctrl.params'),
+      token: r.require('token', 'ctrl.params'),
+      expires: r.optionalTime('expires', 'ctrl.params'),
+    );
+  }
+
   final String userId;
   final String token;
   final DateTime? expires;

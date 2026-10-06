@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:async/async.dart';
 import 'package:test/test.dart';
 import 'package:tinode_dart_client/tinode_dart_client.dart';
 import 'package:web_socket/testing.dart';
@@ -19,6 +20,10 @@ final class FakeServer {
   FakeServer._(this.client, this._socket) {
     _socket.events.listen((event) {
       switch (event) {
+        case TextDataReceived(text: '1'):
+          probes++;
+          _arrived?.complete();
+          _arrived = null;
         case TextDataReceived(:final text):
           _inbox.add(jsonDecode(text) as Json);
           _arrived?.complete();
@@ -38,8 +43,14 @@ final class FakeServer {
   Completer<void>? _arrived;
   final _closed = Completer<int>();
 
+  /// Network probes (`1`) the client sent.
+  int probes = 0;
+
   /// Completes with the close code once the client closes the socket.
-  Future<int> get closedByClient => _closed.future;
+  Future<int> get closedByClient => _closed.future.timeout(
+    const Duration(seconds: 1),
+    onTimeout: () => fail('the client did not close the socket'),
+  );
 
   /// Takes the oldest client packet of type [name] and returns its body,
   /// failing the test if none arrives in time.
@@ -55,6 +66,20 @@ final class FakeServer {
     return take().timeout(
       const Duration(seconds: 1),
       onTimeout: () => fail('no $name packet arrived; inbox: $_inbox'),
+    );
+  }
+
+  /// Waits until the client has sent [count] probes in total.
+  Future<void> probed([int count = 1]) async {
+    Future<void> wait() async {
+      while (probes < count) {
+        await (_arrived ??= Completer()).future;
+      }
+    }
+
+    return wait().timeout(
+      const Duration(seconds: 1),
+      onTimeout: () => fail('$probes of $count probes arrived'),
     );
   }
 
@@ -88,4 +113,41 @@ final class FakeServer {
       ctrl(await next('hi'), code: 201, params: {'ver': '0.25'});
 
   Future<void> close() => _socket.close();
+}
+
+/// Hands out a new [FakeServer] for every connect, as a real server would
+/// for every new socket.
+final class FakeConnector {
+  final _servers = StreamController<FakeServer>();
+  late final StreamQueue<FakeServer> _queue = StreamQueue(_servers.stream);
+
+  /// How many connects to refuse before the next one succeeds.
+  int refuse = 0;
+  int connects = 0;
+
+  Future<WebSocket> call(Uri uri) async {
+    connects++;
+    if (refuse > 0) {
+      refuse--;
+      throw WebSocketException('refused');
+    }
+    final server = FakeServer();
+    _servers.add(server);
+    return server.client;
+  }
+
+  /// The server of the next successful connect.
+  Future<FakeServer> next() => _queue.next.timeout(
+    const Duration(seconds: 1),
+    onTimeout: () => fail('no connect after $connects'),
+  );
+
+  /// Fails the test if the client connects again within [wait].
+  Future<void> expectNoConnect({
+    Duration wait = const Duration(milliseconds: 50),
+  }) async {
+    final before = connects;
+    await Future<void>.delayed(wait);
+    expect(connects, before, reason: 'unexpected reconnect');
+  }
 }

@@ -50,8 +50,8 @@ void main() {
   group('connecting', () {
     test('hi carries version, user agent and language', () async {
       final server = FakeServer();
-      final connecting = TinodeClient.withSocket(
-        server.client,
+      final connecting = TinodeClient.connect(
+        connector: (_) async => server.client,
         TinodeConfig(
           server: config.server,
           apiKey: 'key',
@@ -75,7 +75,10 @@ void main() {
 
     test('a rejected hi throws and closes the socket', () async {
       final server = FakeServer();
-      final connecting = TinodeClient.withSocket(server.client, config);
+      final connecting = TinodeClient.connect(
+        config,
+        connector: (_) async => server.client,
+      );
       server.ctrl(await server.next('hi'), code: 505);
       await expectLater(
         connecting,
@@ -91,7 +94,10 @@ void main() {
 
     setUp(() async {
       server = FakeServer();
-      final connecting = TinodeClient.withSocket(server.client, config);
+      final connecting = TinodeClient.connect(
+        config,
+        connector: (_) async => server.client,
+      );
       await server.handshake();
       client = await connecting;
     });
@@ -181,6 +187,25 @@ void main() {
         expect(sub, {'id': isA<String>(), 'topic': 'new'});
         server.ctrl(sub, topic: 'grpX');
         expect(await name, 'grpX');
+      });
+
+      test('retries a locked topic, then gives up', () async {
+        final name = client.subscribe('usrB');
+        final locked = await server.next('sub');
+        server.ctrl(locked, code: 503);
+        final retry = await server.next('sub');
+        server.ctrl(retry, topic: 'usrB');
+        expect(await name, 'usrB');
+
+        final failed = client.subscribe('usrC');
+        for (var i = 0; i < 4; i++) {
+          server.ctrl(await server.next('sub'), code: 503);
+        }
+        await expectLater(
+          failed,
+          throwsA(isA<ServerException>().having((e) => e.code, 'code', 503)),
+        );
+        await server.expectNoMorePackets();
       });
 
       test('falls back to the requested name', () async {

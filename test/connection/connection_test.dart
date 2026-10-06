@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:async/async.dart';
@@ -6,6 +7,7 @@ import 'package:test/test.dart';
 import 'package:tinode_dart_client/src/connection/connection.dart';
 import 'package:tinode_dart_client/src/protocol/client/client_message.dart';
 import 'package:tinode_dart_client/tinode_dart_client.dart';
+import 'package:web_socket/web_socket.dart';
 
 import '../support/fake_server.dart';
 
@@ -137,6 +139,34 @@ void main() {
       expect(await server.closedByClient, 1000);
     });
 
+    test('a socket error ends the connection like a close', () async {
+      final socket = ErrorSocket();
+      final failing = Connection(socket, timeout: timeout);
+      final reply = failing.request(const Sub('a'));
+      socket.controller.addError(WebSocketException('reset by peer'));
+      await expectLater(reply, throwsA(isA<ConnectionClosedException>()));
+      expect(
+        await failing.done,
+        isA<ConnectionClosedException>().having(
+          (e) => e.reason,
+          'reason',
+          contains('reset by peer'),
+        ),
+      );
+    });
+
+    test('done carries the reason', () async {
+      await connection.close();
+      expect(
+        await connection.done,
+        isA<ConnectionClosedException>().having(
+          (e) => e.reason,
+          'reason',
+          'closed by client',
+        ),
+      );
+    });
+
     test('ends the events stream', () async {
       final done = connection.events.toList();
       await server.close();
@@ -199,6 +229,76 @@ void main() {
       }
       // Errors do not end the stream.
       expect(await events.next, isA<PresMessage>());
+    });
+  });
+
+  group('probing', () {
+    test('a probe can set its own deadline, once', () async {
+      final peer = FakeServer();
+      final probed = Connection(
+        peer.client,
+        timeout: timeout,
+        probeAfter: const Duration(milliseconds: 30),
+        probeTimeout: const Duration(milliseconds: 300),
+      );
+      addTearDown(probed.close);
+
+      probed.probe(timeout: const Duration(milliseconds: 100));
+      await peer.probed();
+      peer.sendRaw('0');
+
+      // The next probe comes from idleness and gets the default deadline.
+      await peer.probed(2);
+      final clock = Stopwatch()..start();
+      await probed.done;
+      expect(clock.elapsed, greaterThan(const Duration(milliseconds: 200)));
+    });
+
+    test('a probe answer is neither an event nor an error', () async {
+      final events = StreamQueue(connection.events);
+      server
+        ..sendRaw('0')
+        ..send({
+          'pres': {'topic': 'me', 'what': 'on'},
+        });
+      expect(await events.next, isA<PresMessage>());
+    });
+
+    test('an unanswered probe ends the connection', () async {
+      final probed = Connection(
+        FakeServer().client,
+        timeout: timeout,
+        probeTimeout: const Duration(milliseconds: 20),
+      );
+      addTearDown(probed.close);
+      final reply = probed.request(const Sub('a'));
+      probed.probe();
+      await expectLater(reply, throwsA(isA<ConnectionClosedException>()));
+      expect(
+        await probed.done,
+        isA<ConnectionClosedException>().having(
+          (e) => e.reason,
+          'reason',
+          'probe unanswered',
+        ),
+      );
+    });
+
+    test('any frame counts as the answer', () async {
+      final peer = FakeServer();
+      final probed = Connection(
+        peer.client,
+        timeout: timeout,
+        probeTimeout: const Duration(milliseconds: 50),
+      );
+      addTearDown(probed.close);
+      probed.probe();
+      await peer.probed();
+      peer.send({
+        'pres': {'topic': 'me', 'what': 'on'},
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(probed.isClosed, isFalse);
     });
   });
 
@@ -265,4 +365,24 @@ void main() {
       expect(await retry, isEmpty);
     });
   });
+}
+
+/// A socket whose event stream the test drives directly.
+final class ErrorSocket implements WebSocket {
+  final controller = StreamController<WebSocketEvent>();
+
+  @override
+  Stream<WebSocketEvent> get events => controller.stream;
+
+  @override
+  String get protocol => '';
+
+  @override
+  void sendText(String s) {}
+
+  @override
+  void sendBytes(Uint8List b) {}
+
+  @override
+  Future<void> close([int? code, String? reason]) => controller.close();
 }

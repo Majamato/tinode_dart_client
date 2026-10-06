@@ -8,6 +8,8 @@ tags:
 presets:
   integration:
     include_tags: integration
+    # Suites share the server's alice/bob chat, so they must not overlap.
+    concurrency: 1
     tags:
       integration:
         skip: false

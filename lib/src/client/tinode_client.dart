@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:tinode_dart_client/src/client/connection_status.dart';
+import 'package:tinode_dart_client/src/client/connection_supervisor.dart';
+import 'package:tinode_dart_client/src/client/requests.dart';
 import 'package:tinode_dart_client/src/client/results.dart';
 import 'package:tinode_dart_client/src/client/tinode_config.dart';
-import 'package:tinode_dart_client/src/connection/connection.dart';
 import 'package:tinode_dart_client/src/errors.dart';
 import 'package:tinode_dart_client/src/json/json_reader.dart';
 import 'package:tinode_dart_client/src/model/message_content.dart';
@@ -12,47 +14,42 @@ import 'package:tinode_dart_client/src/protocol/client/client_message.dart';
 import 'package:tinode_dart_client/src/protocol/server/server_message.dart';
 import 'package:web_socket/web_socket.dart';
 
-/// A session with a Tinode server over one WebSocket. There is no logout:
-/// [close] it and connect again to switch users.
+/// A connection to a Tinode server that outlives dropped sockets: see
+/// [status]. There is no logout: [close] it and connect again to switch
+/// users.
 final class TinodeClient {
-  TinodeClient._(this._connection, this.serverInfo);
+  TinodeClient._(this._supervisor);
 
-  static const protocolVersion = '0.25';
+  static const String protocolVersion = wireVersion;
 
-  /// Opens the socket and performs the `hi` handshake. An unreachable
-  /// server throws `WebSocketException` from `package:web_socket`.
-  static Future<TinodeClient> connect(TinodeConfig config) async =>
-      withSocket(await WebSocket.connect(config.channelsUri), config);
+  /// Opens the socket and performs the `hi` handshake; an unreachable
+  /// server throws [ServerUnreachableException]. Pass [connector] to tune
+  /// the socket, e.g. `dart:io` ping frames.
+  static Future<TinodeClient> connect(
+    TinodeConfig config, {
+    SocketConnector connector = WebSocket.connect,
+  }) async =>
+      TinodeClient._(await ConnectionSupervisor.open(config, connector));
 
-  /// Like [connect], over an already open [socket].
-  static Future<TinodeClient> withSocket(
-    WebSocket socket,
-    TinodeConfig config,
-  ) async {
-    final connection = Connection(socket, timeout: config.requestTimeout);
-    try {
-      final hi = Hi(
-        ver: protocolVersion,
-        ua: config.userAgent,
-        lang: config.language,
-      );
-      final reply = _ctrl(await connection.request(hi), 'hi');
-      return TinodeClient._(connection, ServerInfo.fromParams(reply.params));
-    } on Object {
-      await connection.close();
-      rethrow;
-    }
-  }
-
-  final Connection _connection;
-  final ServerInfo serverInfo;
+  final ConnectionSupervisor _supervisor;
   String? _userId;
+
+  /// The server's reply to the latest `hi`.
+  ServerInfo get serverInfo => _supervisor.serverInfo;
 
   /// The logged-in user, null before login.
   String? get userId => _userId;
 
-  /// Packets the server sends on its own; replies go to the request methods.
-  Stream<ServerMessage> get events => _connection.events;
+  /// While not [Connected], requests fail with
+  /// [ConnectionClosedException] and notes are dropped.
+  ConnectionStatus get status => _supervisor.status;
+
+  /// Changes of [status]; ends after [Disconnected].
+  Stream<ConnectionStatus> get statusChanges => _supervisor.statusChanges;
+
+  /// Packets the server sends on its own; replies go to the request
+  /// methods. It spans reconnects and ends after [Disconnected].
+  Stream<ServerMessage> get events => _supervisor.events;
 
   Stream<DataMessage> get messages => _only<DataMessage>();
 
@@ -69,21 +66,23 @@ final class TinodeClient {
   Future<LoginResult> loginToken(String token) => _login('token', token);
 
   /// Returns the topic's real name, which differs for `new…` topics.
+  /// The topic is attached again after a reconnect.
   Future<String> subscribe(String topic) async {
-    final reply = _ctrl(await _connection.request(Sub(topic)), 'sub');
-    return reply.topic ?? topic;
+    final name = await _supervisor.connection.attach(topic);
+    _supervisor.attached.add(name);
+    return name;
   }
 
   /// Null when the server has nothing to return.
   Future<TopicDescription?> getDescription(String topic) async =>
-      switch (await _connection.request(Get(topic, 'desc'))) {
+      switch (await _supervisor.connection.request(Get(topic, 'desc'))) {
         MetaMessage(:final description) => description,
         _ => null,
       };
 
   /// On `me` these are the user's chats; elsewhere, the topic's members.
   Future<List<Subscription>> getSubscriptions(String topic) async =>
-      switch (await _connection.request(Get(topic, 'sub'))) {
+      switch (await _supervisor.connection.request(Get(topic, 'sub'))) {
         MetaMessage(:final subscriptions) => subscriptions,
         _ => const [],
       };
@@ -95,7 +94,7 @@ final class TinodeClient {
     int? since,
     int? before,
     int? limit,
-  }) => _connection.history(
+  }) async => _supervisor.connection.history(
     Get(
       topic,
       'data',
@@ -109,8 +108,9 @@ final class TinodeClient {
     MessageContent content, {
     bool noEcho = false,
   }) async {
-    final pub = Pub(topic, content, noEcho: noEcho);
-    final reply = _ctrl(await _connection.request(pub), 'pub');
+    final reply = await _supervisor.connection.ctrl(
+      Pub(topic, content, noEcho: noEcho),
+    );
     return PublishResult(
       seq: StrictJson(reply.params).require('seq', 'ctrl.params'),
       time: reply.time,
@@ -118,43 +118,48 @@ final class TinodeClient {
   }
 
   /// Tells the topic's other users that this user is typing.
-  void sendTyping(String topic) => _connection.notify(Note(topic, 'kp'));
+  void sendTyping(String topic) => _supervisor.ready?.notify(Note(topic, 'kp'));
 
   /// Marks messages up to [seq] as received; the server ignores a [seq]
   /// that does not move the marker forward.
   void markReceived(String topic, int seq) =>
-      _connection.notify(Note(topic, 'recv', seq: seq));
+      _supervisor.ready?.notify(Note(topic, 'recv', seq: seq));
 
   void markRead(String topic, int seq) =>
-      _connection.notify(Note(topic, 'read', seq: seq));
+      _supervisor.ready?.notify(Note(topic, 'read', seq: seq));
 
   /// With [unsubscribe] the subscription is dropped on every device.
-  Future<void> leave(String topic, {bool unsubscribe = false}) async => _ctrl(
-    await _connection.request(Leave(topic, unsub: unsubscribe)),
-    'leave',
-  );
+  /// Without it, leaving while disconnected succeeds: there is nothing
+  /// attached on the server to leave.
+  Future<void> leave(String topic, {bool unsubscribe = false}) async {
+    _supervisor.attached.remove(topic);
+    if (_supervisor.ready case final connection?) {
+      await connection.ctrl(Leave(topic, unsub: unsubscribe));
+    } else if (unsubscribe) {
+      throw const ConnectionClosedException('not connected');
+    }
+  }
 
-  Future<void> close() => _connection.close();
+  /// Closes the socket on purpose, e.g. while the app is in the background.
+  /// Requests fail until [resume].
+  void suspend() => _supervisor.suspend();
+
+  /// Reconnects at once, skipping the backoff wait; while [Connected], it
+  /// probes the socket instead. Call it when the app returns to the
+  /// foreground or the network changes. After a network change a dead
+  /// socket is likely, so a short [probeTimeout] finds it sooner.
+  void resume({Duration? probeTimeout}) =>
+      _supervisor.resume(probeTimeout: probeTimeout);
+
+  Future<void> close() => _supervisor.close();
 
   Future<LoginResult> _login(String scheme, String secret) async {
-    final login = Login(scheme: scheme, secret: secret);
-    final params = _ctrl(await _connection.request(login), 'login').params;
-    final r = StrictJson(params);
-    final result = LoginResult(
-      userId: r.require('user', 'ctrl.params'),
-      token: r.require('token', 'ctrl.params'),
-      expires: r.optionalTime('expires', 'ctrl.params'),
-    );
+    final result = await _supervisor.connection.login(scheme, secret);
+    _supervisor.token = result.token;
     _userId = result.userId;
     return result;
   }
 
   Stream<T> _only<T extends ServerMessage>() =>
       events.where((m) => m is T).cast<T>();
-
-  static CtrlMessage _ctrl(ServerMessage reply, String request) =>
-      switch (reply) {
-        final CtrlMessage ctrl => ctrl,
-        _ => throw MalformedPacketException(request, reply),
-      };
 }
