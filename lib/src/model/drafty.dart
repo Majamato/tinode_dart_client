@@ -26,6 +26,16 @@ final class Drafty with ValueObject {
     );
   }
 
+  /// The content of a call message: one space marked as a `VC` entity.
+  /// Clients draw the call's state from the message head, not from this.
+  factory Drafty.videoCall({bool audioOnly = false}) => Drafty(
+    text: ' ',
+    spans: const [Span(at: 0, length: 1, entityIndex: 0)],
+    entities: [
+      Entity(type: Entity.videoCallType, data: {if (audioOnly) 'aonly': true}),
+    ],
+  );
+
   final String text;
   final List<Span> spans;
   final List<Entity> entities;
@@ -84,6 +94,9 @@ final class Span with ValueObject {
 /// with type-specific [data].
 final class Entity with ValueObject {
   const Entity({required this.type, this.data = const {}});
+
+  /// `VC`: a call, see [Drafty.videoCall].
+  static const videoCallType = 'VC';
 
   final String type;
   final Json data;

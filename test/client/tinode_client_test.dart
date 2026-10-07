@@ -366,6 +366,95 @@ void main() {
       });
     });
 
+    group('startCall', () {
+      test('publishes a call message and returns its seq', () async {
+        final ack = client.startCall('usrB');
+        final pub = await server.next('pub');
+        expect(pub, {
+          'id': isA<String>(),
+          'topic': 'usrB',
+          'head': {'mime': 'text/x-drafty', 'webrtc': 'started'},
+          'content': {
+            'txt': ' ',
+            'fmt': [
+              {'len': 1},
+            ],
+            'ent': [
+              {'tp': 'VC'},
+            ],
+          },
+        });
+        server.ctrl(pub, code: 202, params: {'seq': 12});
+        expect((await ack).seq, 12);
+      });
+
+      test('marks an audio-only call in head and content', () async {
+        final ack = client.startCall('usrB', audioOnly: true);
+        final pub = await server.next('pub');
+        expect(pub['head'], {
+          'mime': 'text/x-drafty',
+          'webrtc': 'started',
+          'aonly': true,
+        });
+        expect(
+          MessageContent.fromJson(pub['content']),
+          DraftyContent(Drafty.videoCall(audioOnly: true)),
+        );
+        server.ctrl(pub, code: 202, params: {'seq': 1});
+        await ack;
+      });
+
+      test('a chat already in a call is busy (486)', () async {
+        final ack = client.startCall('usrB');
+        server.ctrl(await server.next('pub'), code: 486);
+        await expectLater(
+          ack,
+          throwsA(isA<ServerException>().having((e) => e.code, 'code', 486)),
+        );
+      });
+    });
+
+    group('sendCallEvent', () {
+      test('sends a call note, with a payload when given', () async {
+        client
+          ..sendCallEvent('usrB', 12, CallEvent.ringing)
+          ..sendCallEvent(
+            'usrB',
+            12,
+            CallEvent.offer,
+            payload: const CallDescription(type: 'offer', sdp: 'v=0').toJson(),
+          )
+          ..sendCallEvent('usrB', 12, CallEvent.iceCandidate, payload: {});
+        expect(await server.next('note'), {
+          'topic': 'usrB',
+          'what': 'call',
+          'seq': 12,
+          'event': 'ringing',
+        });
+        expect(await server.next('note'), {
+          'topic': 'usrB',
+          'what': 'call',
+          'seq': 12,
+          'event': 'offer',
+          'payload': {'type': 'offer', 'sdp': 'v=0'},
+        });
+        expect((await server.next('note'))['event'], 'ice-candidate');
+        await server.expectNoMorePackets();
+      });
+
+      test('refuses what the server would drop', () async {
+        expect(
+          () => client.sendCallEvent('usrB', 12, CallEvent.unknown),
+          throwsArgumentError,
+        );
+        expect(
+          () => client.sendCallEvent('usrB', 0, CallEvent.accept),
+          throwsArgumentError,
+        );
+        await server.expectNoMorePackets();
+      });
+    });
+
     test('notes carry no id', () async {
       client
         ..sendTyping('usrB')

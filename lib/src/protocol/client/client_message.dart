@@ -84,35 +84,52 @@ final class Get extends ClientMessage {
   Json body() => {'topic': topic, 'what': what, 'data': ?data};
 }
 
+/// [head] adds to the `mime` that Drafty content gets.
 final class Pub extends ClientMessage {
-  const Pub(this.topic, this.content, {required this.noEcho});
+  const Pub(this.topic, this.content, {required this.noEcho, this.head});
 
   final String topic;
   final MessageContent content;
   final bool noEcho;
+  final Json? head;
 
   @override
   String get type => 'pub';
 
   @override
-  Json body() => {
-    'topic': topic,
-    if (noEcho) 'noecho': true,
-    if (content is DraftyContent) 'head': {'mime': MessageHead.draftyMime},
-    'content': content.toJson(),
-  };
+  Json body() {
+    final head = {
+      if (content is DraftyContent) 'mime': MessageHead.draftyMime,
+      ...?this.head,
+    };
+    return {
+      'topic': topic,
+      if (noEcho) 'noecho': true,
+      if (head.isNotEmpty) 'head': head,
+      'content': content.toJson(),
+    };
+  }
 }
 
+/// [event] and [payload] are for `call` notes only.
 final class Note extends ClientMessage {
-  const Note(this.topic, this.what, {this.seq});
+  const Note(this.topic, this.what, {this.seq, this.event, this.payload});
 
   final String topic;
   final String what;
   final int? seq;
+  final String? event;
+  final Json? payload;
 
   @override
   String get type => 'note';
 
   @override
-  Json body() => {'topic': topic, 'what': what, 'seq': ?seq};
+  Json body() => {
+    'topic': topic,
+    'what': what,
+    'seq': ?seq,
+    'event': ?event,
+    'payload': ?payload,
+  };
 }

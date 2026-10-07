@@ -10,6 +10,7 @@ and the web.
 - Read the chat list, topic descriptions and message history.
 - Send plain-text or [Drafty](https://github.com/tinode/chat/blob/master/docs/drafty.md) messages.
 - Receive messages, presence and typing/read notifications as typed streams.
+- Signalling for 1:1 voice and video calls, to pair with any WebRTC stack.
 - Typed end to end:
   - every server packet is a sealed class, so a `switch` over it is exhaustive;
   - the protocol fields of each packet are checked on arrival;
@@ -122,6 +123,37 @@ Connectivity().onConnectivityChanged.listen((networks) {
 ```
 
 See [`example/main.dart`](example/main.dart) for a runnable program.
+
+## Calls
+
+The client carries the signalling of Tinode's 1:1 calls; the media is up to
+your WebRTC stack (e.g. `flutter_webrtc`). The server only takes calls when it
+has ICE servers, which it hands out in `serverInfo`:
+
+```dart
+if (client.serverInfo.callsEnabled) {
+  // Pass client.serverInfo.iceServers to your RTCPeerConnection.
+  final call = await client.startCall(peerTopic, audioOnly: true);
+
+  client.info
+      .where((i) => i.seq == call.seq && i.callEvent == CallEvent.accept)
+      .listen((_) async {
+        final offer = await createOffer(); // your WebRTC code
+        client.sendCallEvent(
+          peerTopic,
+          call.seq,
+          CallEvent.offer,
+          payload: offer.toJson(),
+        );
+      });
+}
+```
+
+The callee sees the call as a message whose `head.callState` is
+`CallState.started`, attaches the topic, and answers with `ringing`, `accept`
+and the WebRTC `answer`. The server updates the call message as the call goes
+on (`accepted`, then `finished`, `missed`, `declined`…). See the
+[glossary](docs/glossary.md#calls) for the whole flow.
 
 ## Current limits
 

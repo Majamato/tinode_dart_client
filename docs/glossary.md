@@ -168,7 +168,10 @@ The headers of a message:
 - `replace`: the message this one edits, as `:seq`;
 - `forwarded`, `mentions`, `attachments`…
 
-*In this package:* `MessageHead`, with `replace` as `replaces` and `reply` as `replyTo`.
+- `webrtc`, `webrtc-duration`, `aonly`: the **call** a message stands for, see [Calls](#calls).
+
+*In this package:* `MessageHead`, with `replace` as `replaces` (and its seq as `replacesSeq`) and
+`reply` as `replyTo`.
 
 **Drafty**
 Tinode's rich-text format. It has three parts:
@@ -187,7 +190,8 @@ A range `{at, len}` of the text. Either `tp` gives it an inline style (`ST` stro
 **Entity** (one item of `ent`)
 An object a span refers to, of type `tp`: `LN` link, `MN` mention, `HT` hashtag, `IM` image,
 `EX` attachment, `BN` button… Its `data` depends on the type.
-*In this package:* `Entity`, with `type` and `data`.
+*In this package:* `Entity`, with `type` and `data`. `VC` marks a call message
+(`Entity.videoCallType`, `Drafty.videoCall`).
 
 **History**
 Earlier messages, fetched with `get what=data` and the bounds `since` (inclusive), `before`
@@ -391,9 +395,79 @@ A string identifying the client app, e.g. `MyApp/1.0`. It is sent in `hi` and sh
 | `kp` | key press: the user is typing | `typing`, sent with `sendTyping` |
 | `recv` | the user received up to `seq` | `received`, sent with `markReceived` |
 | `read` | the user read up to `seq` | `read`, sent with `markRead` |
-| `call` | video/audio call signalling | `call` |
+| `call` | one step of a call, see [Calls](#calls) | `call`, sent with `sendCallEvent` |
 
-*In this package:* `InfoMessage.event` (an `InfoEvent`).
+*In this package:* `InfoMessage.event` (an `InfoEvent`). A `call` info also has `callEvent`,
+`payload` and, on `me`, `source`; its `from` is missing when the server ends the call.
+
+---
+
+## Calls
+
+**Call**
+A voice or video call between the two users of a P2P topic, carried by WebRTC. Tinode only relays
+the signalling; audio and video flow between the devices, or through a TURN server. The caller
+publishes a **call message** whose head has `webrtc: started` (and `aonly: true` for voice only),
+and that message's `seq` names the call from then on. A topic holds one call at a time: a second
+one gets code 486. Group topics can't have calls (403), and a server without **ICE servers**
+refuses them (501).
+*In this package:* `TinodeClient.startCall`, which returns the call's `seq`.
+
+**Call event** (`event` of a `call` note or info)
+One step of a call, sent with `{note what="call" seq event payload}` and forwarded to the peer as
+`{info what="call" …}`:
+
+| Wire | Meaning | In this package |
+|------|---------|-----------------|
+| `ringing` | the callee's device shows the call | `ringing` |
+| `accept` | the callee took the call | `accept` |
+| `offer` | the caller's SDP, after `accept` | `offer`, payload a **call description** |
+| `answer` | the callee's SDP | `answer`, payload a **call description** |
+| `ice-candidate` | a network path to try | `iceCandidate`, payload an **ICE candidate** |
+| `hang-up` | end the call, or decline it | `hangUp` |
+
+The callee must be attached to the topic for everything but `ringing`, `accept` and `hang-up`. The
+server drops call notes it doesn't expect, without an error. When a call ends the server sends
+`hang-up` to everyone attached, without `from`. On `me`, the callee's other devices get `accept`
+and `hang-up` with `src` naming the chat, so they can stop ringing.
+*In this package:* `CallEvent`, `TinodeClient.sendCallEvent`, and `InfoMessage.callEvent`,
+`payload` and `source`.
+*Avoid:* "invite": Tinode's docs mention it, but the server never sends it.
+
+**Call state** (head `webrtc`)
+Where a call stands. The server records each change by publishing a new message that replaces the
+call message (`replace: ":<seq>"`), in the caller's name.
+
+| Wire | Meaning | In this package |
+|------|---------|-----------------|
+| `started` | ringing | `started` |
+| `accepted` | the callee took it | `accepted` |
+| `finished` | ended after being accepted; `webrtc-duration` has the length in ms | `finished` |
+| `missed` | not taken in time, or the caller gave up | `missed` |
+| `declined` | the callee refused | `declined` |
+| `disconnected` | a party dropped before it was accepted | `disconnected` |
+| `busy` | documented, but never written by the server | `busy` |
+
+The updates leave out `aonly`: only the call message itself says whether it is voice only.
+*In this package:* `CallState`, `MessageHead.callState`, `callDuration` and `audioOnly`.
+
+**Call timeout** (`callTimeout` in the `hi` reply)
+How many seconds a call may ring before the server ends it as missed.
+*In this package:* `ServerInfo.callTimeout`.
+
+**ICE server**
+A STUN or TURN server that helps WebRTC through NAT and firewalls. The server hands its list out in
+the `hi` reply (`iceServers`), in WebRTC's own shape except for `credential_type`.
+*In this package:* `IceServer`, `ServerInfo.iceServers` and `callsEnabled`.
+
+**Call description**
+The payload of `offer` and `answer`: a WebRTC session description, `{type, sdp}`.
+*In this package:* `CallDescription`.
+*Avoid:* "session description", which clashes with **Session**.
+
+**ICE candidate**
+The payload of `ice-candidate`: `{candidate, sdpMid, sdpMLineIndex, usernameFragment}`.
+*In this package:* `IceCandidate`.
 
 ---
 
@@ -440,7 +514,7 @@ Sent in `hi`, e.g. `0.25`. The server replies with its own version and `build`.
 
 **Server limits**
 Returned in the `hi` reply, e.g. `maxMessageSize`, `maxFileUploadSize`, `maxSubscriberCount`,
-`maxTagCount`.
+`maxTagCount`, and for calls `iceServers` and `callTimeout`.
 *In this package:* `ServerInfo`.
 
 **Push notifications**

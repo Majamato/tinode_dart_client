@@ -7,6 +7,8 @@ import 'package:tinode_dart_client/src/client/results.dart';
 import 'package:tinode_dart_client/src/client/tinode_config.dart';
 import 'package:tinode_dart_client/src/errors.dart';
 import 'package:tinode_dart_client/src/json/json_reader.dart';
+import 'package:tinode_dart_client/src/model/call.dart';
+import 'package:tinode_dart_client/src/model/drafty.dart';
 import 'package:tinode_dart_client/src/model/message_content.dart';
 import 'package:tinode_dart_client/src/model/subscription.dart';
 import 'package:tinode_dart_client/src/model/topic_description.dart';
@@ -55,7 +57,8 @@ final class TinodeClient {
 
   Stream<PresMessage> get presence => _only<PresMessage>();
 
-  /// Typing, read and received notifications from other users.
+  /// Typing, read and received notifications from other users, and the
+  /// steps of calls.
   Stream<InfoMessage> get info => _only<InfoMessage>();
 
   /// Throws [ServerException] on bad credentials, and also on code 300
@@ -107,13 +110,39 @@ final class TinodeClient {
     String topic,
     MessageContent content, {
     bool noEcho = false,
-  }) async {
-    final reply = await _supervisor.connection.ctrl(
-      Pub(topic, content, noEcho: noEcho),
-    );
-    return PublishResult(
-      seq: StrictJson(reply.params).require('seq', 'ctrl.params'),
-      time: reply.time,
+  }) => _publish(Pub(topic, content, noEcho: noEcho));
+
+  /// Calls the peer of the 1:1 [topic] by publishing a call message. Its
+  /// seq names the call in [sendCallEvent], and the server updates the
+  /// message as the call goes on. Throws [ServerException] 486 while the
+  /// chat already has a call, 403 outside 1:1 chats and 501 when the
+  /// server has no ICE servers.
+  Future<PublishResult> startCall(String topic, {bool audioOnly = false}) =>
+      _publish(
+        Pub(
+          topic,
+          DraftyContent(Drafty.videoCall(audioOnly: audioOnly)),
+          noEcho: false,
+          head: {
+            'webrtc': CallState.started.wire,
+            if (audioOnly) 'aonly': true,
+          },
+        ),
+      );
+
+  /// Sends one step of call [seq] to the peer in [topic]; an `offer`,
+  /// `answer` or `iceCandidate` carries its [payload].
+  ///
+  /// Unlike the other notes, it throws [ConnectionClosedException] while
+  /// not [Connected] instead of dropping the note: a lost step leaves the
+  /// peer waiting. The server ends calls whose session dropped anyway.
+  void sendCallEvent(String topic, int seq, CallEvent event, {Json? payload}) {
+    if (event == CallEvent.unknown) {
+      throw ArgumentError.value(event, 'event', 'cannot be sent');
+    }
+    if (seq <= 0) throw ArgumentError.value(seq, 'seq', 'must be positive');
+    _supervisor.connection.notify(
+      Note(topic, 'call', seq: seq, event: event.wire, payload: payload),
     );
   }
 
@@ -158,6 +187,14 @@ final class TinodeClient {
     _supervisor.token = result.token;
     _userId = result.userId;
     return result;
+  }
+
+  Future<PublishResult> _publish(Pub pub) async {
+    final reply = await _supervisor.connection.ctrl(pub);
+    return PublishResult(
+      seq: StrictJson(reply.params).require('seq', 'ctrl.params'),
+      time: reply.time,
+    );
   }
 
   Stream<T> _only<T extends ServerMessage>() =>

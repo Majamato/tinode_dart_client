@@ -216,6 +216,163 @@ void main() {
     );
   });
 
+  group('call info', () {
+    // Shapes from server/calls.go and pres.go (Tinode v0.25).
+    test('every call event maps to its value', () {
+      const events = {
+        'ringing': CallEvent.ringing,
+        'accept': CallEvent.accept,
+        'offer': CallEvent.offer,
+        'answer': CallEvent.answer,
+        'ice-candidate': CallEvent.iceCandidate,
+        'hang-up': CallEvent.hangUp,
+        'invite': CallEvent.unknown,
+      };
+      for (final MapEntry(key: wire, value: event) in events.entries) {
+        final info = parse(
+          '{"info":{"topic":"usrB","from":"usrB","what":"call","seq":5,"event":"$wire"}}',
+        );
+        expect((info! as InfoMessage).callEvent, event, reason: wire);
+      }
+    });
+
+    test('a step from the peer carries its payload', () {
+      final info =
+          parse(
+                '{"info":{"topic":"usrB","from":"usrB","what":"call","seq":5,'
+                r'"event":"offer","payload":{"type":"offer","sdp":"v=0\r\n"}}}',
+              )!
+              as InfoMessage;
+      expect(
+        info,
+        const InfoMessage(
+          topic: 'usrB',
+          from: 'usrB',
+          event: InfoEvent.call,
+          seq: 5,
+          callEvent: CallEvent.offer,
+          payload: {'type': 'offer', 'sdp': 'v=0\r\n'},
+        ),
+      );
+      expect(
+        info.description,
+        const CallDescription(type: 'offer', sdp: 'v=0\r\n'),
+      );
+    });
+
+    test('an ICE candidate parses with or without extras', () {
+      final info =
+          parse(
+                '{"info":{"topic":"usrB","from":"usrB","what":"call","seq":5,'
+                '"event":"ice-candidate","payload":{"type":"candidate",'
+                '"candidate":"candidate:1 1 udp 1 10.0.0.1 9 typ host",'
+                '"sdpMid":"0","sdpMLineIndex":0}}}',
+              )!
+              as InfoMessage;
+      expect(
+        info.candidate,
+        const IceCandidate(
+          candidate: 'candidate:1 1 udp 1 10.0.0.1 9 typ host',
+          sdpMid: '0',
+          sdpMLineIndex: 0,
+        ),
+      );
+      expect(info.description, isNull);
+    });
+
+    test("the server's hang-up has no sender", () {
+      expect(
+        parse(
+          '{"info":{"topic":"usrB","what":"call","seq":5,"event":"hang-up"}}',
+        ),
+        const InfoMessage(
+          topic: 'usrB',
+          event: InfoEvent.call,
+          seq: 5,
+          callEvent: CallEvent.hangUp,
+        ),
+      );
+    });
+
+    test('on me it names the chat', () {
+      expect(
+        parse(
+          '{"info":{"topic":"me","src":"usrA","from":"","what":"call","seq":5,"event":"hang-up"}}',
+        ),
+        const InfoMessage(
+          topic: 'me',
+          event: InfoEvent.call,
+          from: '',
+          source: 'usrA',
+          seq: 5,
+          callEvent: CallEvent.hangUp,
+        ),
+      );
+    });
+
+    test('a call info without an event is unknown', () {
+      final info = parse(
+        '{"info":{"topic":"usrB","from":"usrB","what":"call","seq":5}}',
+      );
+      expect((info! as InfoMessage).callEvent, CallEvent.unknown);
+    });
+
+    test('other infos have no call fields', () {
+      final info =
+          parse(
+                '{"info":{"topic":"usrB","from":"usrB","what":"kp",'
+                '"event":"offer","payload":"x"}}',
+              )!
+              as InfoMessage;
+      expect(info.callEvent, isNull);
+      expect(info.payload, isNull);
+      expect(info.description, isNull);
+      expect(info.candidate, isNull);
+    });
+
+    test('malformed payloads give no description or candidate', () {
+      for (final payload in [
+        '{"type":"offer"}',
+        '{"sdp":3,"type":"offer"}',
+        '{"sdpMid":"0"}',
+      ]) {
+        final info =
+            parse(
+                  '{"info":{"topic":"usrB","from":"usrB","what":"call","seq":5,'
+                  '"event":"offer","payload":$payload}}',
+                )!
+                as InfoMessage;
+        expect(info.description, isNull, reason: payload);
+        expect(info.candidate, isNull, reason: payload);
+      }
+    });
+  });
+
+  group('call payloads', () {
+    test('serialise in the WebRTC shape', () {
+      expect(const CallDescription(type: 'answer', sdp: 'v=0').toJson(), {
+        'type': 'answer',
+        'sdp': 'v=0',
+      });
+      expect(const IceCandidate(candidate: 'c', sdpMLineIndex: 0).toJson(), {
+        'candidate': 'c',
+        'sdpMLineIndex': 0,
+      });
+    });
+
+    test('round trip', () {
+      const candidate = IceCandidate(
+        candidate: 'c',
+        sdpMid: '0',
+        sdpMLineIndex: 1,
+        usernameFragment: 'u',
+      );
+      expect(IceCandidate.tryParse(candidate.toJson()), candidate);
+      const offer = CallDescription(type: 'offer', sdp: 'v=0');
+      expect(CallDescription.tryParse(offer.toJson()), offer);
+    });
+  });
+
   test('unknown packet types and enum values are tolerated', () {
     expect(parse('{"future":{"topic":"me"}}'), isNull);
     final pres = parse('{"pres":{"topic":"me","what":"teleport"}}');

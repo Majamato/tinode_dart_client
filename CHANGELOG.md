@@ -1,3 +1,17 @@
+## 0.3.0
+
+- Call signalling for 1:1 voice and video calls; bring your own WebRTC stack.
+  `TinodeClient.startCall` publishes the call message and `sendCallEvent` sends
+  its steps (`CallEvent`). Incoming steps arrive on `info` with
+  `InfoMessage.callEvent`, `payload` (see `description`, `candidate`) and
+  `source`.
+- `ServerInfo.iceServers` (`IceServer`), `callTimeout` and `callsEnabled`.
+- `MessageHead.callState` (`CallState`), `callDuration`, `audioOnly` and
+  `replacesSeq`.
+- `Drafty.videoCall` and `Entity.videoCallType`.
+- **Breaking:** `InfoMessage.from` is nullable: the server sends call
+  hang-ups without it. Such infos used to fail as malformed packets.
+
 ## 0.2.0
 
 - Reconnection: after a drop the client reconnects with jittered backoff, logs

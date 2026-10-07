@@ -126,6 +126,16 @@ void main() {
     expect(client.status, isA<Reconnecting>());
   });
 
+  test('call events fail fast while down, not dropped', () async {
+    await connect();
+    client.suspend();
+    expect(await statuses.next, const Suspended());
+    expect(
+      () => client.sendCallEvent('usrB', 5, CallEvent.hangUp),
+      throwsA(isA<ConnectionClosedException>()),
+    );
+  });
+
   test('a drop fails the requests waiting for replies', () async {
     await connect();
     final ack = client.publish('usrB', const PlainText('hi'));

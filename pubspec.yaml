@@ -1,6 +1,6 @@
 name: tinode_dart_client
 description: A pure-Dart client for the Tinode chat server, speaking its JSON-over-WebSocket protocol.
-version: 0.2.0
+version: 0.3.0
 # repository: https://github.com/<owner>/tinode_dart_client
 # issue_tracker: https://github.com/<owner>/tinode_dart_client/issues
 topics:
