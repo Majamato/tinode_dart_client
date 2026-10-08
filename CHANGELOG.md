@@ -1,3 +1,28 @@
+## 0.4.0
+
+Building blocks for a local cache and offline sync. The client stays
+stateless; the cache itself lives in the app (see tinode_flutter_chat).
+
+- Deleting messages: `TinodeClient.deleteMessages` (for this user, or for
+  everyone with `hard`) returns the delete ID. `getDeleteLog` reads deletions
+  missed while away (`DeleteLog`, `SeqRange`, `MetaMessage.deleteLog`).
+  `PresMessage.lastDeleteId` and `deletedRanges` carry the deletions of a
+  `pres del`.
+- "If modified since": `getDescription(ifModifiedSince:)` and
+  `getSubscriptions(ifModifiedSince:, limit:)`. Unchanged chats are left out,
+  removed ones carry `Subscription.deleted`, and "not modified" gives `[]`.
+- `publish(head:)` adds headers, e.g. an app's own `x-…` key.
+- `TinodeClient.restore` starts a client for a remembered token without
+  waiting for the server, so an app can open offline; `ServerInfo.unknown`
+  stands in until the first `hi`.
+- `toJson()` on `DataMessage`, `TopicDescription`, `Subscription`, `Profile`,
+  `ProfilePhoto`, `PrivateSettings`, `MessageHead`, `Access`, `DefaultAccess`
+  and `LastSeen`, read back by their `fromJson` (`DataMessage.fromJson` is
+  new).
+- Fix: a live message that arrives during `getMessages` and lies outside the
+  requested seqs now reaches `messages` instead of the history page.
+- `userId` follows the client's own logins after a reconnect or restore.
+
 ## 0.3.0
 
 - Call signalling for 1:1 voice and video calls; bring your own WebRTC stack.

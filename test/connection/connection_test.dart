@@ -38,7 +38,7 @@ void main() {
   });
 
   test('a meta reply completes its request too', () async {
-    final reply = connection.request(const Get('me', 'desc'));
+    final reply = connection.request(Get.desc('me'));
     final get = await server.next('get');
     server.send({
       'meta': {
@@ -306,7 +306,7 @@ void main() {
     test('collects the data packets that precede the ctrl', () async {
       final events = <ServerMessage>[];
       connection.events.listen(events.add);
-      final history = connection.history(const Get('usrB', 'data'));
+      final history = connection.history(Get.data('usrB'));
       final get = await server.next('get');
       for (final seq in [8, 7]) {
         server.send({
@@ -323,9 +323,24 @@ void main() {
       expect(events.single, isA<DataMessage>());
     });
 
+    test('live messages outside the window stay events', () async {
+      final events = <ServerMessage>[];
+      connection.events.listen(events.add);
+      final history = connection.history(Get.data('usrB', since: 3, before: 6));
+      final get = await server.next('get');
+      for (final seq in [5, 9, 4, 4]) {
+        server.send({
+          'data': {'topic': 'usrB', 'seq': seq, 'ts': ts, 'content': '$seq'},
+        });
+      }
+      server.ctrl(get, code: 208);
+      expect((await history).map((m) => m.seq), [4, 5]);
+      expect(events.map((m) => (m as DataMessage).seq), [9]);
+    });
+
     test('requests for one topic run one at a time', () async {
-      final first = connection.history(const Get('usrB', 'data'));
-      final second = connection.history(const Get('usrB', 'data'));
+      final first = connection.history(Get.data('usrB'));
+      final second = connection.history(Get.data('usrB'));
       final get = await server.next('get');
       await server.expectNoMorePackets();
 
@@ -346,21 +361,21 @@ void main() {
     });
 
     test('a failed request frees the topic for the next one', () async {
-      final failed = connection.history(const Get('usrB', 'data'));
+      final failed = connection.history(Get.data('usrB'));
       server.ctrl(await server.next('get'), code: 403);
       await expectLater(failed, throwsA(isA<ServerException>()));
 
-      final retry = connection.history(const Get('usrB', 'data'));
+      final retry = connection.history(Get.data('usrB'));
       server.ctrl(await server.next('get'), code: 204);
       expect(await retry, isEmpty);
     });
 
     test('a timed out request frees the topic for the next one', () async {
-      final failed = connection.history(const Get('usrB', 'data'));
+      final failed = connection.history(Get.data('usrB'));
       await server.next('get');
       await expectLater(failed, throwsA(isA<RequestTimeoutException>()));
 
-      final retry = connection.history(const Get('usrB', 'data'));
+      final retry = connection.history(Get.data('usrB'));
       server.ctrl(await server.next('get'), code: 204);
       expect(await retry, isEmpty);
     });

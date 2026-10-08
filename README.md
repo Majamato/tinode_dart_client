@@ -11,6 +11,9 @@ and the web.
 - Send plain-text or [Drafty](https://github.com/tinode/chat/blob/master/docs/drafty.md) messages.
 - Receive messages, presence and typing/read notifications as typed streams.
 - Signalling for 1:1 voice and video calls, to pair with any WebRTC stack.
+- Delete messages, and the building blocks of a local cache: serialisable
+  models, "if modified since" queries, the delete log, and a client that
+  starts offline from a remembered token.
 - Typed end to end:
   - every server packet is a sealed class, so a `switch` over it is exhaustive;
   - the protocol fields of each packet are checked on arrival;
@@ -155,15 +158,41 @@ and the WebRTC `answer`. The server updates the call message as the call goes
 on (`accepted`, then `finished`, `missed`, `declined`…). See the
 [glossary](docs/glossary.md#calls) for the whole flow.
 
+## Caching and offline
+
+The client keeps no state of its own, but gives a cache what it needs:
+
+- every model has a `toJson()` that its `fromJson` reads back, so a store can
+  keep the wire form;
+- `getMessages(since:)` fetches what came after the newest cached seq;
+- `getSubscriptions('me', ifModifiedSince:)` and
+  `getDescription(ifModifiedSince:)` return only what changed. A `public` or
+  `private` left out of the reply is unchanged, not cleared;
+- `getDeleteLog(since:)` lists the messages deleted after a known delete ID
+  (`Subscription.lastDeleteId`), and `pres del` reports new deletions live;
+- `publish(head:)` can tag a message with your own ID. The server has no
+  idempotency key, so after a drop look for that ID before sending again.
+
+```dart
+// Open offline: no waiting for the server, which may be unreachable.
+final client = TinodeClient.restore(config, token: savedToken);
+client.statusChanges.listen((status) {
+  if (status case Connected(:final login?)) saveToken(login.token);
+});
+```
+
+`restore` connects in the background like a reconnect. Requests fail with
+`ConnectionClosedException` until it is `Connected`, and a refused token ends
+in `Disconnected`.
+
 ## Current limits
 
-This release covers the online path, including reconnection. Not built yet:
+Not built yet:
 
 - account creation and profile updates (`acc`, `set`);
-- deleting messages or topics (`del`);
+- deleting topics, subscriptions or users (`del` beyond messages);
 - searching users and topics (`fnd`);
-- file uploads;
-- local cache and offline sync.
+- file uploads.
 
 ## License
 

@@ -11,6 +11,10 @@ final class DataMessage extends ServerMessage {
     this.head,
   });
 
+  /// Reads a message back from [toJson], e.g. out of a local store.
+  /// Throws `MalformedPacketException` like a packet from the server.
+  factory DataMessage.fromJson(Json json) = DataMessage._fromJson;
+
   factory DataMessage._fromJson(Json json) {
     final r = StrictJson(json);
     return DataMessage(
@@ -35,6 +39,16 @@ final class DataMessage extends ServerMessage {
   final DateTime time;
   final MessageHead? head;
   final MessageContent content;
+
+  /// The body of the `data` packet, which [DataMessage.fromJson] reads back.
+  Json toJson() => {
+    'topic': topic,
+    'from': ?from,
+    'seq': seq,
+    'ts': time.wire,
+    'head': ?head?.toJson(),
+    'content': content.toJson(),
+  };
 
   @override
   List<Object?> get props => [topic, from, seq, time, head, content];

@@ -366,4 +366,66 @@ void main() {
     );
     await connector.expectNoConnect();
   });
+
+  group('restore', () {
+    void restore(String token) {
+      client = TinodeClient.restore(
+        configWith(),
+        token: token,
+        connector: connector.call,
+      );
+      statuses = StreamQueue(client.statusChanges);
+    }
+
+    test('starts offline and fails requests fast', () async {
+      connector.refuse = 100;
+      restore('tok1');
+      expect(client.status, reconnecting(1));
+      expect(client.serverInfo, ServerInfo.unknown);
+      expect(client.serverInfo.callsEnabled, isFalse);
+      expect(client.userId, isNull);
+      await expectLater(
+        client.getSubscriptions('me'),
+        throwsA(isA<ConnectionClosedException>()),
+      );
+      expect(
+        await statuses.next,
+        reconnecting(2, cause: isA<ServerUnreachableException>()),
+      );
+    });
+
+    test('once the server answers it logs in with the token', () async {
+      connector.refuse = 2;
+      restore('tok1');
+      server = await connector.next();
+      final hi = await server.next('hi');
+      server.ctrl(hi, code: 201, params: {'ver': '0.25', 'build': 'b'});
+      final login = await server.next('login');
+      expect(login['scheme'], 'token');
+      expect(login['secret'], 'tok1');
+      server.ctrl(login, params: {'user': 'usrA', 'token': 'tok2'});
+
+      final connected = await statuses.take(3).then((s) => s.last as Connected);
+      expect(connected.login?.token, 'tok2');
+      expect(client.userId, 'usrA');
+      expect(client.serverInfo.build, 'b');
+      expect(client.status, isA<Connected>());
+    });
+
+    test('a refused token is final', () async {
+      restore('expired');
+      server = await connector.next();
+      await server.handshake();
+      server.ctrl(await server.next('login'), code: 401);
+      expect(
+        await statuses.next,
+        isA<Disconnected>().having(
+          (s) => s.cause,
+          'cause',
+          isA<ServerException>().having((e) => e.code, 'code', 401),
+        ),
+      );
+      await connector.expectNoConnect();
+    });
+  });
 }

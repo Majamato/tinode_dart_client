@@ -30,6 +30,10 @@ final class ServerInfo with ValueObject {
     );
   }
 
+  /// What the client knows before its first `hi` is answered, e.g. after
+  /// `TinodeClient.restore`: no limits and no calls.
+  static const unknown = ServerInfo(version: '');
+
   final String version;
   final String? build;
   final int? maxMessageSize;

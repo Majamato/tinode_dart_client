@@ -59,16 +59,20 @@ final class Connection {
     return pending.future;
   }
 
-  /// Collects `data` packets for [message], sorted by ascending seq.
+  /// Collects the `data` packets in [message]'s window, sorted by
+  /// ascending seq. Others for the topic stay live events.
   Future<List<DataMessage>> history(Get message) async {
     final topic = message.topic;
     for (var busy = _history[topic]; busy != null; busy = _history[topic]) {
       await busy.done;
     }
-    final collector = _history[topic] = HistoryCollector();
+    final collector = _history[topic] = HistoryCollector(
+      since: message.since,
+      before: message.before,
+    );
     try {
       await request(message);
-      return collector.messages..sort((a, b) => a.seq.compareTo(b.seq));
+      return collector.messages;
     } finally {
       _history.remove(topic);
       collector.finish();
@@ -180,8 +184,9 @@ final class Connection {
     if (id != null) {
       // A reply whose request timed out has no waiter left; drop it.
       _pending.remove(id)?.complete(message);
-    } else if (message is DataMessage && _history[message.topic] != null) {
-      _history[message.topic]!.messages.add(message);
+    } else if (message is DataMessage &&
+        (_history[message.topic]?.accepts(message.seq) ?? false)) {
+      _history[message.topic]!.add(message);
     } else {
       _events.add(message);
     }

@@ -1,4 +1,5 @@
 import 'package:tinode_dart_client/src/json/json_reader.dart';
+import 'package:tinode_dart_client/src/model/delete_log.dart';
 import 'package:tinode_dart_client/src/model/message_content.dart';
 import 'package:tinode_dart_client/src/model/message_head.dart';
 
@@ -69,19 +70,77 @@ final class Leave extends ClientMessage {
   Json body() => {'topic': topic, if (unsub) 'unsub': true};
 }
 
-/// `what` is one of `desc`, `sub`, `data`; [data] holds `since`/`before`/`limit`.
+/// Reads one part of a topic; `what` names it and the matching key holds
+/// its query, e.g. `{"what": "data", "data": {"since": 3}}`.
 final class Get extends ClientMessage {
-  const Get(this.topic, this.what, {this.data});
+  const Get._(this.topic, this.what, [this.query = const {}]);
+
+  /// [ifModifiedSince] leaves out `public`, `private` and `trusted` when
+  /// none of them changed since.
+  Get.desc(String topic, {DateTime? ifModifiedSince})
+    : this._(topic, 'desc', {'ims': ?ifModifiedSince?.wire});
+
+  /// [ifModifiedSince] returns only the subscriptions changed or removed
+  /// since, the unchanged `public` and `private` left out.
+  Get.sub(String topic, {DateTime? ifModifiedSince, int? limit})
+    : this._(topic, 'sub', {'ims': ?ifModifiedSince?.wire, 'limit': ?limit});
+
+  /// Messages with `since <= seq < before`.
+  Get.data(String topic, {int? since, int? before, int? limit})
+    : this._(topic, 'data', {
+        'since': ?since,
+        'before': ?before,
+        'limit': ?limit,
+      });
+
+  /// Deleted ranges whose delete IDs are `since <= id < before`.
+  Get.del(String topic, {int? since, int? before, int? limit})
+    : this._(topic, 'del', {
+        'since': ?since,
+        'before': ?before,
+        'limit': ?limit,
+      });
 
   final String topic;
   final String what;
-  final Json? data;
+  final Json query;
+
+  /// The lower bound of a `data` or `del` query.
+  int? get since => query['since'] as int?;
+
+  /// The upper bound, exclusive, of a `data` or `del` query.
+  int? get before => query['before'] as int?;
 
   @override
   String get type => 'get';
 
   @override
-  Json body() => {'topic': topic, 'what': what, 'data': ?data};
+  Json body() => {
+    'topic': topic,
+    'what': what,
+    if (query.isNotEmpty) what: query,
+  };
+}
+
+/// Deletes the messages in [ranges]; [hard] deletes them for everyone,
+/// otherwise only for this user.
+final class Del extends ClientMessage {
+  const Del(this.topic, this.ranges, {required this.hard});
+
+  final String topic;
+  final List<SeqRange> ranges;
+  final bool hard;
+
+  @override
+  String get type => 'del';
+
+  @override
+  Json body() => {
+    'topic': topic,
+    'what': 'msg',
+    'delseq': [for (final r in ranges) r.toJson()],
+    if (hard) 'hard': true,
+  };
 }
 
 /// [head] adds to the `mime` that Drafty content gets.

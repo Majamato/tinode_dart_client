@@ -295,6 +295,126 @@ void main() {
       expect(await subs, isEmpty);
     });
 
+    group('if modified since', () {
+      final since = DateTime.utc(2026, 10, 1, 8, 30, 0, 250);
+
+      test('getDescription sends ims', () async {
+        final desc = client.getDescription('usrB', ifModifiedSince: since);
+        final get = await server.next('get');
+        expect(get, {
+          'id': isA<String>(),
+          'topic': 'usrB',
+          'what': 'desc',
+          'desc': {'ims': '2026-10-01T08:30:00.250Z'},
+        });
+        server.ctrl(get, code: 204);
+        expect(await desc, isNull);
+      });
+
+      test('getSubscriptions sends ims and limit', () async {
+        final subs = client.getSubscriptions(
+          'me',
+          ifModifiedSince: since,
+          limit: 10,
+        );
+        final get = await server.next('get');
+        expect(get['sub'], {'ims': '2026-10-01T08:30:00.250Z', 'limit': 10});
+        server.ctrl(get, code: 204);
+        expect(await subs, isEmpty);
+      });
+
+      test('nothing modified gives no subscriptions', () async {
+        final subs = client.getSubscriptions('me', ifModifiedSince: since);
+        server.ctrl(await server.next('get'), code: 304);
+        expect(await subs, isEmpty);
+      });
+
+      test('other errors still throw', () async {
+        final subs = client.getSubscriptions('me', ifModifiedSince: since);
+        server.ctrl(await server.next('get'), code: 403);
+        await expectLater(
+          subs,
+          throwsA(isA<ServerException>().having((e) => e.code, 'code', 403)),
+        );
+      });
+    });
+
+    group('getDeleteLog', () {
+      test('sends the bounds and reads meta.del', () async {
+        final log = client.getDeleteLog('usrB', since: 3, limit: 8);
+        final get = await server.next('get');
+        expect(get, {
+          'id': isA<String>(),
+          'topic': 'usrB',
+          'what': 'del',
+          'del': {'since': 3, 'limit': 8},
+        });
+        server.send({
+          'meta': {
+            'id': get['id'],
+            'topic': 'usrB',
+            'ts': ts,
+            'del': {
+              'clear': 4,
+              'delseq': [
+                {'low': 2, 'hi': 4},
+              ],
+            },
+          },
+        });
+        expect(
+          await log,
+          const DeleteLog(lastDeleteId: 4, ranges: [SeqRange(2, 4)]),
+        );
+      });
+
+      test('is empty on 204', () async {
+        final log = client.getDeleteLog('usrB');
+        final get = await server.next('get');
+        expect(get, {'id': isA<String>(), 'topic': 'usrB', 'what': 'del'});
+        server.ctrl(get, code: 204);
+        expect(await log, DeleteLog.empty);
+      });
+    });
+
+    group('deleteMessages', () {
+      test('sends the ranges and returns the delete ID', () async {
+        final deleted = client.deleteMessages('usrB', const [
+          SeqRange.single(3),
+          SeqRange(5, 9),
+        ]);
+        final del = await server.next('del');
+        expect(del, {
+          'id': isA<String>(),
+          'topic': 'usrB',
+          'what': 'msg',
+          'delseq': [
+            {'low': 3},
+            {'low': 5, 'hi': 9},
+          ],
+        });
+        server.ctrl(del, params: {'del': 7});
+        expect(await deleted, 7);
+      });
+
+      test('hard deletes for everyone', () async {
+        final deleted = client.deleteMessages('usrB', const [
+          SeqRange.single(3),
+        ], hard: true);
+        final del = await server.next('del');
+        expect(del['hard'], isTrue);
+        server.ctrl(del, params: {'del': 1});
+        expect(await deleted, 1);
+      });
+
+      test('refuses an empty list', () {
+        expect(
+          () => client.deleteMessages('usrB', const []),
+          throwsArgumentError,
+        );
+      });
+    });
+
     group('publish', () {
       test('marks Drafty content and returns the seq', () async {
         final ack = client.publish(
@@ -312,6 +432,18 @@ void main() {
         });
         server.ctrl(pub, code: 202, params: {'seq': 9});
         expect(await ack, PublishResult(seq: 9, time: DateTime.parse(ts)));
+      });
+
+      test('adds the given head to the Drafty mime', () async {
+        final ack = client.publish(
+          'usrB',
+          const DraftyContent(Drafty(text: 'hi')),
+          head: {'x-app-cid': 'abc'},
+        );
+        final pub = await server.next('pub');
+        expect(pub['head'], {'mime': 'text/x-drafty', 'x-app-cid': 'abc'});
+        server.ctrl(pub, code: 202, params: {'seq': 2});
+        expect((await ack).seq, 2);
       });
 
       test('sends plain text bare, with echo', () async {

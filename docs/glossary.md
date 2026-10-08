@@ -219,9 +219,36 @@ Every delete operation gets a delete ID, and `clear` is the latest one. `delseq`
 of message `seq`s that were deleted. Clients use these to catch up on deletions they missed.
 *In this package:* `clear` is `lastDeleteId`.
 
+**Delete log**
+The deletions of a topic, read with `get what=del` and the bounds `since` (inclusive) and `before`
+(exclusive), which are **delete IDs**, not seqs. The reply, `meta.del`, holds `clear` (the latest
+delete ID among them) and `delseq` (the deleted ranges). Nothing in the window gives code 204.
+*In this package:* `DeleteLog` with `lastDeleteId` and `ranges`; `TinodeClient.getDeleteLog`.
+
+**Seq range** (one item of `delseq`)
+`{low, hi}`: the seqs from `low` up to, not including, `hi`. Without `hi` it is the single seq
+`low`.
+*In this package:* `SeqRange` with `low` and `high` (exclusive).
+
+**Soft / hard delete**
+`del what=msg` deletes messages for the deleting user only (soft) or, with `hard`, for everyone.
+A hard delete needs the `D` permission; without it the server deletes softly, without an error. The
+reply's `params.del` is the new delete ID. A hard delete reaches the topic's attached readers as
+`pres del`; a soft one only the user's other sessions.
+*In this package:* `TinodeClient.deleteMessages(topic, ranges, hard:)`.
+
 **ims** ("if modified since")
 A timestamp sent with `get` so the server returns only what changed since then. Meant for
-caching.
+caching:
+- on `desc`, the counters always come, but `public`, `private` and `trusted` only when one of them
+  changed;
+- on `sub`, only subscriptions changed since come back, with an unchanged `public` or `private`
+  left out, and subscriptions removed since carry `deleted`. On `me`, a chat with new messages
+  counts as changed. Nothing changed gives code 304, "not modified".
+
+A field left out of such a reply is unchanged, not cleared.
+*In this package:* `ifModifiedSince` on `getDescription` and `getSubscriptions`, where 304 gives
+`[]`; `Subscription.deleted`.
 
 ---
 
@@ -282,7 +309,9 @@ Lowercase search keywords attached to users and topics, optionally with a prefix
 The value that clears a field. Sending `null` leaves the field unchanged.
 
 **x-…**
-The prefix for custom keys an app adds to `public` or `private`, e.g. `x-example-com-role`.
+The prefix for custom keys an app adds to `public`, `private` or a message `head`, e.g.
+`x-example-com-role`. The server passes `head` keys through unchanged.
+*In this package:* `publish(head:)`; read them back from `MessageHead.raw`.
 
 ---
 
@@ -371,7 +400,7 @@ Changes arrive as `pres` packets.
 | `acs` | permissions changed | `access` |
 | `msg` | new message in a chat you're not attached to | `message` |
 | `read` / `recv` | another session or user read / received | `read` / `received` |
-| `del` | messages deleted | `deleted` |
+| `del` | messages deleted, with `clear` and `delseq` | `deleted`, with `lastDeleteId` and `deletedRanges` |
 | `gone` | topic deleted or you were removed | `gone` |
 | `term` | session terminated | `terminated` |
 | `tags` / `aux` | tags or aux changed | `tags` / `aux` |
@@ -479,7 +508,8 @@ session, sends `hi`, logs in with the latest token and attaches the same topics 
 first). Waits grow with full-jitter exponential backoff (random in `[0, min(cap, base·2^n))`), so
 clients that dropped together don't return together. Nothing sent to you while you were away is
 replayed: fetch the gap with `get data` and `since`.
-*In this package:* `ReconnectPolicy`, `TinodeClient.resume`.
+*In this package:* `ReconnectPolicy`, `TinodeClient.resume`. `TinodeClient.restore` starts a client
+in this state, from a remembered token, so an app can open without the server.
 *Avoid:* "retry" for this; a retry is one more attempt within a reconnect.
 
 **Connection status**

@@ -9,6 +9,7 @@ final class MetaMessage extends ServerMessage {
     this.description,
     this.subscriptions = const [],
     this.tags = const [],
+    this.deleteLog,
   });
 
   factory MetaMessage._fromJson(Json json) {
@@ -26,6 +27,10 @@ final class MetaMessage extends ServerMessage {
         for (final tag in r.optional<List<Object?>>('tags', 'meta') ?? const [])
           if (tag is String) tag,
       ],
+      deleteLog: switch (r.optionalObject('del', 'meta')) {
+        null => null,
+        final d => DeleteLog.fromJson(d, 'meta.del'),
+      },
     );
   }
 
@@ -37,6 +42,9 @@ final class MetaMessage extends ServerMessage {
   final List<Subscription> subscriptions;
   final List<String> tags;
 
+  /// Deleted messages, in reply to `get what=del`.
+  final DeleteLog? deleteLog;
+
   @override
   List<Object?> get props => [
     id,
@@ -45,5 +53,6 @@ final class MetaMessage extends ServerMessage {
     description,
     subscriptions,
     tags,
+    deleteLog,
   ];
 }

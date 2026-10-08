@@ -66,6 +66,22 @@ final class TopicDescription with ValueObject {
   /// Only present on P2P topics: when the peer was last online.
   final LastSeen? seen;
 
+  /// The wire form, which [TopicDescription.fromJson] reads back.
+  Json toJson() => {
+    'created': ?created?.wire,
+    'updated': ?updated?.wire,
+    'touched': ?lastMessageAt?.wire,
+    'defacs': ?defaultAccess?.toJson(),
+    'acs': ?access?.toJson(),
+    if (lastSeq != 0) 'seq': lastSeq,
+    if (read != 0) 'read': read,
+    if (received != 0) 'recv': received,
+    if (lastDeleteId != 0) 'clear': lastDeleteId,
+    'public': ?public?.toJson(),
+    'private': ?private?.toJson(),
+    'seen': ?seen?.toJson(),
+  };
+
   @override
   List<Object?> get props => [
     created,

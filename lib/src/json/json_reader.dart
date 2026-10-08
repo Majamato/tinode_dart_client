@@ -48,6 +48,12 @@ extension type const StrictJson(Json json) {
       DateTime.tryParse(value) ?? (throw MalformedPacketException(path, value));
 }
 
+/// Times as the server writes them.
+extension WireTime on DateTime {
+  /// RFC 3339 in UTC.
+  String get wire => toUtc().toIso8601String();
+}
+
 /// Lenient reads for app-defined blobs: wrong types become `null`.
 extension type const LooseJson(Json json) {
   T? get<T extends Object>(String key) => switch (json[key]) {

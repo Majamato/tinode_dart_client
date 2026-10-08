@@ -35,6 +35,14 @@ final class Profile with ValueObject {
   final ProfilePhoto? photo;
   final Json raw;
 
+  /// The wire form; keys in [raw] win over the typed fields.
+  Json toJson() => {
+    'fn': ?name,
+    'note': ?note,
+    'photo': ?photo?.toJson(),
+    ...raw,
+  };
+
   @override
   List<Object?> get props => [name, note, photo, raw];
 }
@@ -58,6 +66,8 @@ final class ProfilePhoto with ValueObject {
 
   /// Relative refs resolve against the server's `/v0/file/s/`.
   final String? ref;
+
+  Json toJson() => {'type': ?type, 'data': ?data, 'ref': ?ref};
 
   @override
   List<Object?> get props => [type, data, ref];

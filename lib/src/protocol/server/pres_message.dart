@@ -42,6 +42,8 @@ final class PresMessage extends ServerMessage {
     this.source,
     this.seq,
     this.userAgent,
+    this.lastDeleteId,
+    this.deletedRanges = const [],
   });
 
   factory PresMessage._fromJson(Json json) {
@@ -53,6 +55,8 @@ final class PresMessage extends ServerMessage {
       source: r.optional('src', 'pres'),
       seq: r.optional('seq', 'pres'),
       userAgent: r.optional('ua', 'pres'),
+      lastDeleteId: r.optional('clear', 'pres'),
+      deletedRanges: r.list('delseq', 'pres', SeqRange.fromJson),
     );
   }
 
@@ -65,6 +69,20 @@ final class PresMessage extends ServerMessage {
   final int? seq;
   final String? userAgent;
 
+  /// On [PresenceEvent.deleted]: the delete ID of the deletion (`clear`).
+  final int? lastDeleteId;
+
+  /// On [PresenceEvent.deleted]: the seqs deleted (`delseq`).
+  final List<SeqRange> deletedRanges;
+
   @override
-  List<Object?> get props => [topic, event, source, seq, userAgent];
+  List<Object?> get props => [
+    topic,
+    event,
+    source,
+    seq,
+    userAgent,
+    lastDeleteId,
+    deletedRanges,
+  ];
 }

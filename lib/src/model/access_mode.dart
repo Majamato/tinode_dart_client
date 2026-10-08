@@ -75,6 +75,8 @@ final class Access with ValueObject {
   final AccessMode given;
   final AccessMode mode;
 
+  Json toJson() => {'want': '$want', 'given': '$given', 'mode': '$mode'};
+
   @override
   List<Object?> get props => [want, given, mode];
 }
@@ -94,6 +96,8 @@ final class DefaultAccess with ValueObject {
 
   final AccessMode auth;
   final AccessMode anon;
+
+  Json toJson() => {'auth': '$auth', 'anon': '$anon'};
 
   @override
   List<Object?> get props => [auth, anon];

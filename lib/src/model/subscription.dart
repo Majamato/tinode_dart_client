@@ -11,6 +11,7 @@ final class Subscription with ValueObject {
     this.topic,
     this.userId,
     this.updated,
+    this.deleted,
     this.lastMessageAt,
     this.access,
     this.online = false,
@@ -29,6 +30,7 @@ final class Subscription with ValueObject {
       topic: r.optional('topic', path),
       userId: r.optional('user', path),
       updated: r.optionalTime('updated', path),
+      deleted: r.optionalTime('deleted', path),
       lastMessageAt: r.optionalTime('touched', path),
       access: switch (r.optionalObject('acs', path)) {
         null => null,
@@ -51,6 +53,10 @@ final class Subscription with ValueObject {
   final String? topic;
   final String? userId;
   final DateTime? updated;
+
+  /// Set only in replies to `get sub` with an `ims`: the subscription was
+  /// removed at this time.
+  final DateTime? deleted;
   final DateTime? lastMessageAt;
   final Access? access;
   final bool online;
@@ -68,11 +74,30 @@ final class Subscription with ValueObject {
 
   int get unread => lastSeq > read ? lastSeq - read : 0;
 
+  /// The wire form, which [Subscription.fromJson] reads back.
+  Json toJson() => {
+    'topic': ?topic,
+    'user': ?userId,
+    'updated': ?updated?.wire,
+    'deleted': ?deleted?.wire,
+    'touched': ?lastMessageAt?.wire,
+    'acs': ?access?.toJson(),
+    if (online) 'online': true,
+    if (lastSeq != 0) 'seq': lastSeq,
+    if (read != 0) 'read': read,
+    if (received != 0) 'recv': received,
+    if (lastDeleteId != 0) 'clear': lastDeleteId,
+    'public': ?public?.toJson(),
+    'private': ?private?.toJson(),
+    'seen': ?seen?.toJson(),
+  };
+
   @override
   List<Object?> get props => [
     topic,
     userId,
     updated,
+    deleted,
     lastMessageAt,
     access,
     online,
@@ -100,6 +125,8 @@ final class LastSeen with ValueObject {
 
   final DateTime? when;
   final String? userAgent;
+
+  Json toJson() => {'when': ?when?.wire, 'ua': ?userAgent};
 
   @override
   List<Object?> get props => [when, userAgent];

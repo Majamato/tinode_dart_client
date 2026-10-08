@@ -23,6 +23,17 @@ final class ConnectionSupervisor {
         cap: _config.reconnect.cap,
       );
 
+  /// Starts disconnected and connects in the background like a reconnect:
+  /// with backoff, logging in with [token]. A refused token ends it.
+  factory ConnectionSupervisor.restore(
+    TinodeConfig config,
+    SocketConnector connector, {
+    required String token,
+  }) => ConnectionSupervisor._(config, connector)
+    ..token = token
+    .._serverInfo = ServerInfo.unknown
+    .._schedule(null, Duration.zero);
+
   /// Connects once. Unlike later reconnects, a failure here throws.
   static Future<ConnectionSupervisor> open(
     TinodeConfig config,

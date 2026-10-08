@@ -53,6 +53,18 @@ final class MessageHead with ValueObject {
   final bool audioOnly;
   final Json raw;
 
+  /// The wire form; keys in [raw] win over the typed fields.
+  Json toJson() => {
+    'mime': ?mime,
+    'replace': ?replaces,
+    'reply': ?replyTo,
+    if (callState case final state? when state != CallState.unknown)
+      'webrtc': state.wire,
+    'webrtc-duration': ?callDuration?.inMilliseconds,
+    if (audioOnly) 'aonly': true,
+    ...raw,
+  };
+
   /// The seq in [replaces], or `null` when there is none or it is malformed.
   int? get replacesSeq => switch (replaces) {
     final r? when r.startsWith(':') => int.tryParse(r.substring(1)),

@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 import 'package:tinode_dart_client/src/json/json_reader.dart';
 import 'package:tinode_dart_client/src/model/call.dart';
+import 'package:tinode_dart_client/src/model/delete_log.dart';
 import 'package:tinode_dart_client/src/model/message_content.dart';
 import 'package:tinode_dart_client/src/model/message_head.dart';
 import 'package:tinode_dart_client/src/model/subscription.dart';

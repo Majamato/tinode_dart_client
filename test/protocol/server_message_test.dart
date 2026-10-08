@@ -135,6 +135,47 @@ void main() {
     expect(chat.online, isTrue);
   });
 
+  test('meta with a delete log', () {
+    final msg = parse(
+      '{"meta":{"id":"7","topic":"usrS8SZdtb3xS0","ts":"2026-10-04T11:30:46.678Z",'
+      '"del":{"clear":3,"delseq":[{"low":2},{"low":5,"hi":8}]}}}',
+    );
+    expect(
+      (msg! as MetaMessage).deleteLog,
+      const DeleteLog(
+        lastDeleteId: 3,
+        ranges: [SeqRange.single(2), SeqRange(5, 8)],
+      ),
+    );
+  });
+
+  test('a removed chat carries when it was deleted', () {
+    final msg = parse(
+      '{"meta":{"id":"4","topic":"me","ts":"2026-10-04T11:30:46.678Z","sub":['
+      '{"topic":"grpX","updated":"2026-09-28T21:45:21.515Z",'
+      '"deleted":"2026-10-01T08:00:00Z"}]}}',
+    );
+    expect(
+      (msg! as MetaMessage).subscriptions.single.deleted,
+      DateTime.utc(2026, 10, 1, 8),
+    );
+  });
+
+  test('pres del carries the delete ID and ranges', () {
+    expect(
+      parse(
+        '{"pres":{"topic":"grpX","what":"del","clear":4,'
+        '"delseq":[{"low":3,"hi":5}]}}',
+      ),
+      const PresMessage(
+        topic: 'grpX',
+        event: PresenceEvent.deleted,
+        lastDeleteId: 4,
+        deletedRanges: [SeqRange(3, 5)],
+      ),
+    );
+  });
+
   test('pres and info', () {
     expect(
       parse(

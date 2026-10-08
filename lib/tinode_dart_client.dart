@@ -12,6 +12,7 @@ export 'src/errors.dart';
 export 'src/json/json_reader.dart' show Json;
 export 'src/model/access_mode.dart';
 export 'src/model/call.dart';
+export 'src/model/delete_log.dart';
 export 'src/model/drafty.dart';
 export 'src/model/message_content.dart';
 export 'src/model/message_head.dart';

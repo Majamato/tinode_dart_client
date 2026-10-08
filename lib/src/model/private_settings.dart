@@ -50,6 +50,15 @@ final class PrivateSettings with ValueObject {
   final List<String> pinnedTopics;
   final Json raw;
 
+  /// The wire form; keys in [raw] win over the typed fields.
+  Json toJson() => {
+    'comment': ?comment,
+    if (archived) 'arch': true,
+    'accepted': ?accepted?.toString(),
+    if (pinnedTopics.isNotEmpty) 'tpins': pinnedTopics,
+    ...raw,
+  };
+
   @override
   List<Object?> get props => [comment, archived, accepted, pinnedTopics, raw];
 }
