@@ -88,6 +88,20 @@ void main() {
       expect(Subscription.fromJson(member.toJson(), 'sub'), member);
     });
 
+    test('a search result', () {
+      final found = FoundTopic.fromJson(const {
+        'topic': 'grpX',
+        'updated': '2026-10-08T15:01:42.041Z',
+        'acs': {'mode': 'JRWPS'},
+        'public': {'fn': 'Probe group'},
+        'private': ['probegroup'],
+        'subcnt': 2,
+      }, 'sub');
+      expect(FoundTopic.fromJson(viaText(found.toJson()), 'sub'), found);
+      final bare = FoundTopic.fromJson(const {'user': 'usrB'}, 'sub');
+      expect(bare.toJson(), {'topic': 'usrB'});
+    });
+
     test('a group description', () {
       final desc = TopicDescription.fromJson(const {
         'created': '2026-09-01T00:00:00.000Z',

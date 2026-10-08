@@ -10,6 +10,8 @@ and the web.
 - Read the chat list, topic descriptions and message history.
 - Send plain-text or [Drafty](https://github.com/tinode/chat/blob/master/docs/drafty.md) messages.
 - Receive messages, presence and typing/read notifications as typed streams.
+- Find users and groups by tag, open 1:1 chats, create groups and add
+  members.
 - Signalling for 1:1 voice and video calls, to pair with any WebRTC stack.
 - Delete messages, and the building blocks of a local cache: serialisable
   models, "if modified since" queries, the delete log, and a client that
@@ -127,6 +129,33 @@ Connectivity().onConnectivityChanged.listen((networks) {
 
 See [`example/main.dart`](example/main.dart) for a runnable program.
 
+## Finding people and starting chats
+
+`find` searches users and groups by their tags. A space means AND, a comma OR;
+logins carry the `basic:` prefix, while emails and phone numbers match as
+typed. A user comes back under their user ID, which is also the name of the
+1:1 chat with them:
+
+```dart
+final found = await client.find('basic:bob,bob@example.com');
+final bob = found.first; // a FoundTopic: topic, public profile, matched tags
+await client.subscribe(bob.topic); // opens the 1:1 chat, creating it the first time
+```
+
+A group is created with its first profile and tags, and members are added by
+user ID. They can read it at once; their `me` gets a `pres acs` naming it.
+
+```dart
+final group = await client.createGroup(
+  public: const Profile(name: 'Hikers'),
+  tags: ['hiking'],
+);
+await client.setSubscription(group, userId: bob.topic);
+```
+
+The creator of a chat gets no `pres` for it: refresh the chat list
+(`getSubscriptions('me')`) after creating one.
+
 ## Calls
 
 The client carries the signalling of Tinode's 1:1 calls; the media is up to
@@ -185,14 +214,23 @@ client.statusChanges.listen((status) {
 `ConnectionClosedException` until it is `Connected`, and a refused token ends
 in `Disconnected`.
 
-## Current limits
+## Roadmap
 
-Not built yet:
+Built so far: the happy path, reconnection, calls, offline building blocks, finding people and
+starting chats. Next, in this order, each feature landing here first and then in
+[`tinode_flutter_chat`](../tinode_flutter_chat):
 
-- account creation and profile updates (`acc`, `set`);
-- deleting topics, subscriptions or users (`del` beyond messages);
-- searching users and topics (`fnd`);
-- file uploads.
+1. ~~**Find people and start chats**~~: done in 0.5.0 (`find`, `createGroup`,
+   `setSubscription`, `setDescription`, `setTags`).
+2. **Group chat essentials**: reading members' profiles and read/received counters for sender
+   names and per-message receipts. Typing and read notes are already here.
+3. **Attachments**: file upload and download over HTTP (`/v0/file/u`, `/v0/file/s`), Drafty
+   image and file entities.
+4. **Account and profile**: account creation (`acc`), profile and password changes, deleting
+   topics, subscriptions and users (`del` beyond messages).
+5. **Push**: registering the device token for push notifications (`hi dev`).
+6. Local search and cache upkeep happen in the Flutter package only.
+7. UI/UX work happens in the Flutter package only.
 
 ## License
 

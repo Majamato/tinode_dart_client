@@ -135,6 +135,40 @@ void main() {
     expect(chat.online, isTrue);
   });
 
+  test('meta on fnd holds search results, not subscriptions', () {
+    final msg =
+        parse(
+              '{"meta":{"id":"8","topic":"fnd","ts":"2026-10-08T15:01:41.032Z","sub":['
+              '{"updated":"2026-09-27T17:57:20.995Z","acs":{"mode":"JRWPAS"},'
+              '"public":{"fn":"Bob Smith","photo":{"data":"…","type":"jpg"}},'
+              '"private":["basic:bob"],"topic":"usrS8SZdtb3xS0"},'
+              '{"updated":"2026-10-08T15:01:42.041Z","acs":{"mode":"JRWPS"},'
+              '"public":{"fn":"Probe group"},"private":["probegroup"],'
+              '"topic":"grplgE6ofjBhOk","subcnt":2}]}}',
+            )!
+            as MetaMessage;
+    expect(msg.subscriptions, isEmpty);
+    final [bob, group] = msg.found;
+    expect(bob.topic, 'usrS8SZdtb3xS0');
+    expect(bob.kind, TopicKind.direct);
+    expect(bob.public?.name, 'Bob Smith');
+    expect(bob.matchedTags, ['basic:bob']);
+    expect(bob.defaultMode, AccessMode.parse('JRWPAS'));
+    expect(bob.memberCount, isNull);
+    expect(group.kind, TopicKind.group);
+    expect(group.memberCount, 2);
+  });
+
+  test('a search result without a name is malformed', () {
+    expect(
+      () => parse(
+        '{"meta":{"id":"8","topic":"fnd","ts":"2026-10-08T15:01:41.032Z",'
+        '"sub":[{"public":{"fn":"Nobody"}}]}}',
+      ),
+      throwsA(isA<MalformedPacketException>()),
+    );
+  });
+
   test('meta with a delete log', () {
     final msg = parse(
       '{"meta":{"id":"7","topic":"usrS8SZdtb3xS0","ts":"2026-10-04T11:30:46.678Z",'

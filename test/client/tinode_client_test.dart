@@ -215,6 +215,200 @@ void main() {
       });
     });
 
+    group('createGroup', () {
+      test('subscribes to new with its setup, returns the real name', () async {
+        final name = client.createGroup(
+          public: const Profile(name: 'Hikers'),
+          tags: const ['hiking'],
+        );
+        final sub = await server.next('sub');
+        expect(sub, {
+          'id': isA<String>(),
+          'topic': 'new',
+          'set': {
+            'desc': {
+              'public': {'fn': 'Hikers'},
+            },
+            'tags': ['hiking'],
+          },
+        });
+        server.ctrl(sub, topic: 'grpX');
+        expect(await name, 'grpX');
+      });
+
+      test('a channel subscribes to nch; no setup sends none', () async {
+        final name = client.createGroup(channel: true);
+        final sub = await server.next('sub');
+        expect(sub, {
+          'id': isA<String>(),
+          'topic': 'nch',
+          'set': <String, Object?>{},
+        });
+        server.ctrl(sub, topic: 'chnX');
+        expect(await name, 'chnX');
+      });
+    });
+
+    group('find', () {
+      Json results(Json get, List<Json> found) => {
+        'meta': {'id': get['id'], 'topic': 'fnd', 'ts': ts, 'sub': found},
+      };
+
+      test('attaches fnd once, sets the query, reads the results', () async {
+        var found = client.find('basic:bob');
+        final sub = await server.next('sub');
+        expect(sub, {'id': isA<String>(), 'topic': 'fnd'});
+        server.ctrl(sub, topic: 'fnd');
+        final set = await server.next('set');
+        expect(set, {
+          'id': isA<String>(),
+          'topic': 'fnd',
+          'desc': {'public': 'basic:bob'},
+        });
+        server.ctrl(set);
+        final get = await server.next('get');
+        expect(get, {'id': isA<String>(), 'topic': 'fnd', 'what': 'sub'});
+        server.send(
+          results(get, [
+            {
+              'topic': 'usrB',
+              'public': {'fn': 'Bob'},
+            },
+          ]),
+        );
+        expect((await found).single.topic, 'usrB');
+
+        found = client.find('nobody');
+        server.ctrl(await server.next('set'));
+        final empty = await server.next('get');
+        server.ctrl(empty, code: 204);
+        expect(await found, isEmpty);
+        await server.expectNoMorePackets();
+      });
+
+      test('searches take turns', () async {
+        final first = client.find('a');
+        final second = client.find('b');
+        server.ctrl(await server.next('sub'), topic: 'fnd');
+        final setA = await server.next('set');
+        expect(setA['desc'], {'public': 'a'});
+        server.ctrl(setA);
+        final getA = await server.next('get');
+        // The second query must wait until the first has its results.
+        await server.expectNoMorePackets();
+        server.send(
+          results(getA, [
+            {'topic': 'usrA'},
+          ]),
+        );
+        final setB = await server.next('set');
+        expect(setB['desc'], {'public': 'b'});
+        server.ctrl(setB);
+        final getB = await server.next('get');
+        server.send(
+          results(getB, [
+            {'topic': 'usrB'},
+          ]),
+        );
+        expect((await first).single.topic, 'usrA');
+        expect((await second).single.topic, 'usrB');
+      });
+
+      test('a failed search does not block the next', () async {
+        final failed = client.find('a');
+        server.ctrl(await server.next('sub'), code: 403);
+        await expectLater(failed, throwsA(isA<ServerException>()));
+
+        final found = client.find('b');
+        server.ctrl(await server.next('sub'), topic: 'fnd');
+        final set = await server.next('set');
+        server.ctrl(set);
+        final empty = await server.next('get');
+        server.ctrl(empty, code: 204);
+        expect(await found, isEmpty);
+      });
+
+      test('refuses a blank query', () {
+        expect(() => client.find('  '), throwsArgumentError);
+      });
+    });
+
+    group('set', () {
+      test('setSubscription adds a member and returns their access', () async {
+        final access = client.setSubscription(
+          'grpX',
+          userId: 'usrB',
+          mode: AccessMode.parse('JRWP'),
+        );
+        final set = await server.next('set');
+        expect(set, {
+          'id': isA<String>(),
+          'topic': 'grpX',
+          'sub': {'user': 'usrB', 'mode': 'JRWP'},
+        });
+        server.ctrl(
+          set,
+          params: {
+            'acs': {'want': 'JRWPS', 'given': 'JRWP', 'mode': 'JRWP'},
+            'user': 'usrB',
+          },
+        );
+        expect((await access)?.given, AccessMode.parse('JRWP'));
+      });
+
+      test(
+        'setSubscription without a user or mode sends an empty sub',
+        () async {
+          final access = client.setSubscription('grpX');
+          final set = await server.next('set');
+          expect(set['sub'], <String, Object?>{});
+          server.ctrl(set);
+          expect(await access, isNull);
+        },
+      );
+
+      test('a refused invite throws', () async {
+        final access = client.setSubscription('grpX', userId: 'usrB');
+        server.ctrl(await server.next('set'), code: 403);
+        await expectLater(access, throwsA(isA<ServerException>()));
+      });
+
+      test('setDescription sends only what changes', () async {
+        final done = client.setDescription(
+          'grpX',
+          public: const Profile(name: 'Hikers'),
+          defaultAccess: DefaultAccess(
+            auth: AccessMode.parse('JRWP'),
+            anon: AccessMode.none,
+          ),
+        );
+        final set = await server.next('set');
+        expect(set, {
+          'id': isA<String>(),
+          'topic': 'grpX',
+          'desc': {
+            'public': {'fn': 'Hikers'},
+            'defacs': {'auth': 'JRWP', 'anon': 'N'},
+          },
+        });
+        server.ctrl(set);
+        await done;
+        expect(() => client.setDescription('grpX'), throwsArgumentError);
+      });
+
+      test('setTags replaces the tags', () async {
+        final done = client.setTags('me', const ['basic:alice', 'hiking']);
+        final set = await server.next('set');
+        expect(set, {
+          'id': isA<String>(),
+          'topic': 'me',
+          'tags': ['basic:alice', 'hiking'],
+        });
+        server.ctrl(set);
+        await done;
+      });
+    });
+
     group('leave', () {
       test('detaches but keeps the subscription by default', () async {
         final done = client.leave('grpX');

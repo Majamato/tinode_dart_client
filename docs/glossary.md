@@ -104,7 +104,9 @@ One JSON object sent over the socket. It has a single top-level key that names i
 
 *In this package:* `ServerMessage` and its subclasses `CtrlMessage`, `DataMessage`,
 `MetaMessage`, `PresMessage` and `InfoMessage`. `meta.desc` and `meta.sub` are
-`MetaMessage.description` and `MetaMessage.subscriptions`.
+`MetaMessage.description` and `MetaMessage.subscriptions`, except on `fnd`, where `meta.sub` holds
+search results: `MetaMessage.found`. The client's own `set` is `SetMeta`, so it doesn't clash with
+Dart's `Set`.
 
 **Request id** (`id`)
 A string the client chooses for each request. The server repeats it on the reply so the client
@@ -303,7 +305,9 @@ uploaded file), plus `type` (`jpg`, `png`…).
 
 **Tags**
 Lowercase search keywords attached to users and topics, optionally with a prefix such as
-`email:` or `tel:`. `fnd` searches by them: a space means AND, a comma means OR.
+`email:`, `tel:` or `basic:` (the login). `fnd` searches by them: a space means AND, a comma
+means OR. See [Finding and creating chats](#finding-and-creating-chats).
+*In this package:* `setTags`.
 
 **`␡`** (U+2421)
 The value that clears a field. Sending `null` leaves the field unchanged.
@@ -348,6 +352,47 @@ users).
 
 **Owner**
 The user holding `O` on a group or channel. There is one per topic, and P2P topics have none.
+
+---
+
+## Finding and creating chats
+
+**Search** (`fnd`)
+Finding users and groups by their tags. The app attaches `fnd`, writes the query into its `public`
+with `set`, and reads the results with `get what=sub`. The query lives in the session only; one
+written into `private` is kept and shared by the user's devices. Nothing found is a `204`.
+*In this package:* `TinodeClient.find`. Calls take turns, since `fnd` holds one query at a time.
+
+**Query**
+Tags joined by a space (AND) or a comma (OR, binding tighter): `a b,c` is a AND (b OR c). The server
+adds the prefix to plain emails and phone numbers; a login needs it written out (`basic:alice`).
+Names are not tags: the sample users can't be found by `alice`, only by `basic:alice`.
+
+**Search result**
+One entry of `meta.sub` on `fnd`: a user under their user ID (`usr…`), or a group or channel under
+its name. `private` lists the tags it matched, `acs.mode` the access a new subscriber would get,
+and a group's `subcnt` its member count.
+*In this package:* `FoundTopic`, with `matchedTags`, `defaultMode` and `memberCount`.
+*Avoid:* "contact"; a result is not in the chat list until a chat with it exists.
+
+**Starting a 1:1 chat**
+Attaching to the other user's ID (`sub usr…`) creates the P2P topic the first time, on both
+sides. The peer's `me` gets `pres acs` naming the user; the creator gets no `pres`, and the chat
+shows up in their next `get sub` on `me`.
+*In this package:* `subscribe(userId)`.
+
+**Creating a group**
+`sub` to `new…` (a channel: `nch…`) with a `set` inside it carrying the first `desc` and `tags`. The
+reply's `ctrl.topic` is the real `grp…`/`chn…` name. The creator is the owner.
+*In this package:* `createGroup`, which returns the real name.
+
+**Adding a member**
+`set` with `sub: {user, mode}` on the group adds that user; Tinode's docs call it inviting, but
+nothing waits for an answer. It needs `S`; changing an existing
+member's access needs `A`. Without `mode` the member gets the group's `defacs`. The reply's
+`params.acs` is the access they got. The new member's `me` gets `pres acs` with the group as
+`src`, and they can read it at once, without accepting first.
+*In this package:* `setSubscription(topic, userId:, mode:)`.
 
 ---
 

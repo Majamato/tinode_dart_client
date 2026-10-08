@@ -100,6 +100,26 @@ void main() {
     },
   );
 
+  test('a created group is attached again by its real name', () async {
+    await connect();
+    await login('tok1');
+    final created = client.createGroup(public: const Profile(name: 'G'));
+    final sub = await server.next('sub');
+    server.ctrl(sub, topic: 'grpX');
+    await created;
+
+    await drop();
+    server.ctrl(
+      await server.next('login'),
+      params: {'user': 'usrA', 'token': 'tok2'},
+    );
+    final again = await server.next('sub');
+    expect(again, {'id': isA<String>(), 'topic': 'grpX'});
+    server.ctrl(again);
+    expect(await statuses.next, isA<Connected>());
+    await server.expectNoMorePackets();
+  });
+
   test('logs in with the newest token on the next reconnect', () async {
     await connect();
     await login('tok1');

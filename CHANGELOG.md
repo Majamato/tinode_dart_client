@@ -1,3 +1,18 @@
+## 0.5.0
+
+Finding people and starting chats.
+
+- `TinodeClient.find` searches users and groups by tag on `fnd` and returns
+  `FoundTopic`s (also `MetaMessage.found`). Searches take turns, since the
+  server keeps one query at a time.
+- `createGroup` creates a group, or a channel, with its first profile and tags,
+  and returns the real `grp…`/`chn…` name. It is attached again after a
+  reconnect like any other topic.
+- `setSubscription` adds a member or changes access, `setDescription` changes
+  `public`, `private` and `defacs`, and `setTags` replaces tags. On the wire
+  they are `set` (`SetMeta`).
+- `subscribe` documents that a user ID opens, or creates, the 1:1 chat.
+
 ## 0.4.0
 
 Building blocks for a local cache and offline sync. The client stays

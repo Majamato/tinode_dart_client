@@ -45,16 +45,18 @@ final class Login extends ClientMessage {
   Json body() => {'scheme': scheme, 'secret': secret};
 }
 
+/// [init] sets up a topic that the `sub` creates (`new…`, `nch…`).
 final class Sub extends ClientMessage {
-  const Sub(this.topic);
+  const Sub(this.topic, {this.init});
 
   final String topic;
+  final TopicChanges? init;
 
   @override
   String get type => 'sub';
 
   @override
-  Json body() => {'topic': topic};
+  Json body() => {'topic': topic, 'set': ?init?.toJson()};
 }
 
 final class Leave extends ClientMessage {
@@ -120,6 +122,36 @@ final class Get extends ClientMessage {
     'what': what,
     if (query.isNotEmpty) what: query,
   };
+}
+
+/// What a `set` changes: the topic's description, a subscription, the
+/// tags. A `sub` that creates a topic carries the same object.
+final class TopicChanges {
+  const TopicChanges({this.desc, this.sub, this.tags});
+
+  /// `public`, `private`, `defacs`.
+  final Json? desc;
+
+  /// `user` (another user's subscription; the own one without it) and
+  /// `mode`.
+  final Json? sub;
+  final List<String>? tags;
+
+  Json toJson() => {'desc': ?desc, 'sub': ?sub, 'tags': ?tags};
+}
+
+/// The `set` packet, named apart from `dart:core`'s `Set`.
+final class SetMeta extends ClientMessage {
+  const SetMeta(this.topic, this.changes);
+
+  final String topic;
+  final TopicChanges changes;
+
+  @override
+  String get type => 'set';
+
+  @override
+  Json body() => {'topic': topic, ...changes.toJson()};
 }
 
 /// Deletes the messages in [ranges]; [hard] deletes them for everyone,

@@ -7,10 +7,14 @@ import 'package:tinode_dart_client/src/client/results.dart';
 import 'package:tinode_dart_client/src/client/tinode_config.dart';
 import 'package:tinode_dart_client/src/errors.dart';
 import 'package:tinode_dart_client/src/json/json_reader.dart';
+import 'package:tinode_dart_client/src/model/access_mode.dart';
 import 'package:tinode_dart_client/src/model/call.dart';
 import 'package:tinode_dart_client/src/model/delete_log.dart';
 import 'package:tinode_dart_client/src/model/drafty.dart';
+import 'package:tinode_dart_client/src/model/found_topic.dart';
 import 'package:tinode_dart_client/src/model/message_content.dart';
+import 'package:tinode_dart_client/src/model/private_settings.dart';
+import 'package:tinode_dart_client/src/model/profile.dart';
 import 'package:tinode_dart_client/src/model/subscription.dart';
 import 'package:tinode_dart_client/src/model/topic_description.dart';
 import 'package:tinode_dart_client/src/protocol/client/client_message.dart';
@@ -61,6 +65,10 @@ final class TinodeClient {
   final ConnectionSupervisor _supervisor;
   String? _userId;
 
+  /// The tail of the [find] calls, which take turns: `fnd` holds one
+  /// query at a time.
+  Future<void> _finds = Future.value();
+
   /// The server's reply to the latest `hi`.
   ServerInfo get serverInfo => _supervisor.serverInfo;
 
@@ -95,10 +103,51 @@ final class TinodeClient {
 
   /// Returns the topic's real name, which differs for `new…` topics.
   /// The topic is attached again after a reconnect.
-  Future<String> subscribe(String topic) async {
-    final name = await _supervisor.connection.attach(topic);
-    _supervisor.attached.add(name);
-    return name;
+  ///
+  /// Subscribing to a user ID (`usr…`) opens the 1:1 chat with that user,
+  /// creating it the first time.
+  Future<String> subscribe(String topic) => _subscribe(topic);
+
+  /// Creates a group, or with [channel] a channel, and attaches it as
+  /// [subscribe] does; returns its `grp…` or `chn…` name. The creator
+  /// owns it. [tags] make it findable with [find].
+  Future<String> createGroup({
+    Profile? public,
+    PrivateSettings? private,
+    List<String> tags = const [],
+    bool channel = false,
+  }) => _subscribe(
+    channel ? 'nch' : 'new',
+    init: TopicChanges(
+      desc: _desc(public: public, private: private),
+      tags: tags.isEmpty ? null : tags,
+    ),
+  );
+
+  /// Finds users and groups by their tags. In [query] a space means AND
+  /// and a comma OR, binding tighter: `a b,c` is a AND (b OR c). Emails and
+  /// phone numbers match as they are; other tags need their prefix, e.g.
+  /// `basic:alice` for a login. Best matches come first.
+  ///
+  /// The first search attaches `fnd`. Searches take turns, since the server
+  /// keeps one query at a time.
+  Future<List<FoundTopic>> find(String query) {
+    if (query.trim().isEmpty) {
+      throw ArgumentError.value(query, 'query', 'must not be blank');
+    }
+    final result = _finds.then((_) => _find(query));
+    _finds = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<List<FoundTopic>> _find(String query) async {
+    if (!_supervisor.attached.contains('fnd')) await _subscribe('fnd');
+    await _set('fnd', TopicChanges(desc: {'public': query}));
+    return switch (await _supervisor.connection.request(Get.sub('fnd'))) {
+      MetaMessage(:final found) => found,
+      // 204: nothing matched.
+      _ => const [],
+    };
   }
 
   /// Null when the server has nothing to return. With [ifModifiedSince],
@@ -162,6 +211,47 @@ final class TinodeClient {
     MetaMessage(:final deleteLog?) => deleteLog,
     _ => DeleteLog.empty,
   };
+
+  /// Changes the topic's description; fields left null stay as they are.
+  /// [defaultAccess] needs the owner.
+  Future<void> setDescription(
+    String topic, {
+    Profile? public,
+    PrivateSettings? private,
+    DefaultAccess? defaultAccess,
+  }) async {
+    final desc = _desc(
+      public: public,
+      private: private,
+      defaultAccess: defaultAccess,
+    );
+    if (desc == null) throw ArgumentError('nothing to change');
+    await _set(topic, TopicChanges(desc: desc));
+  }
+
+  /// With [userId], adds that user to the group, which needs the `S`
+  /// permission, or changes what an existing member is given, which needs
+  /// `A`. Without it, changes what this user wants. Without [mode] the
+  /// server applies the topic's default. Returns the resulting access.
+  Future<Access?> setSubscription(
+    String topic, {
+    String? userId,
+    AccessMode? mode,
+  }) async {
+    final reply = await _set(
+      topic,
+      TopicChanges(sub: {'user': ?userId, 'mode': ?mode?.toString()}),
+    );
+    return switch (StrictJson(reply.params).optionalObject('acs', 'ctrl')) {
+      null => null,
+      final acs => Access.fromJson(acs, 'ctrl.params.acs'),
+    };
+  }
+
+  /// Replaces the topic's tags, which [find] searches; on `me` they are
+  /// the user's. Needs the owner on groups.
+  Future<void> setTags(String topic, List<String> tags) =>
+      _set(topic, TopicChanges(tags: tags));
 
   /// With [noEcho] the sender's own sessions get no `data` copy. [head]
   /// adds headers; keys of your own start with `x-<app>-`.
@@ -259,6 +349,28 @@ final class TinodeClient {
       _supervisor.resume(probeTimeout: probeTimeout);
 
   Future<void> close() => _supervisor.close();
+
+  Future<String> _subscribe(String topic, {TopicChanges? init}) async {
+    final name = await _supervisor.connection.attach(topic, init: init);
+    _supervisor.attached.add(name);
+    return name;
+  }
+
+  Future<CtrlMessage> _set(String topic, TopicChanges changes) =>
+      _supervisor.connection.ctrl(SetMeta(topic, changes));
+
+  static Json? _desc({
+    Profile? public,
+    PrivateSettings? private,
+    DefaultAccess? defaultAccess,
+  }) {
+    final desc = {
+      'public': ?public?.toJson(),
+      'private': ?private?.toJson(),
+      'defacs': ?defaultAccess?.toJson(),
+    };
+    return desc.isEmpty ? null : desc;
+  }
 
   Future<LoginResult> _login(String scheme, String secret) async {
     final result = await _supervisor.connection.login(scheme, secret);
