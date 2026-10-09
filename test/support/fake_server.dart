@@ -54,11 +54,15 @@ final class FakeServer {
 
   /// Takes the oldest client packet of type [name] and returns its body,
   /// failing the test if none arrives in time.
-  Future<Json> next(String name) async {
+  Future<Json> next(String name) async =>
+      (await nextPacket(name))[name]! as Json;
+
+  /// Like [next], but returns the whole packet, `extra` included.
+  Future<Json> nextPacket(String name) async {
     Future<Json> take() async {
       while (true) {
         final i = _inbox.indexWhere((p) => p.containsKey(name));
-        if (i != -1) return _inbox.removeAt(i)[name]! as Json;
+        if (i != -1) return _inbox.removeAt(i);
         await (_arrived ??= Completer()).future;
       }
     }

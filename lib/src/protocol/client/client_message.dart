@@ -13,10 +13,19 @@ sealed class ClientMessage {
 
   Json body();
 
+  /// The top-level `extra` beside the packet, e.g. the files it uses.
+  Json? extra() => null;
+
   Json toJson(String? id) => {
     type: {'id': ?id, ...body()},
+    'extra': ?extra(),
   };
 }
+
+/// `extra` naming the uploaded files a packet refers to, so the server
+/// keeps them; null when there are none.
+Json? _attachments(List<String> paths) =>
+    paths.isEmpty ? null : {'attachments': paths};
 
 final class Hi extends ClientMessage {
   const Hi({required this.ver, required this.ua, this.lang});
@@ -45,18 +54,23 @@ final class Login extends ClientMessage {
   Json body() => {'scheme': scheme, 'secret': secret};
 }
 
-/// [init] sets up a topic that the `sub` creates (`new…`, `nch…`).
+/// [init] sets up a topic that the `sub` creates (`new…`, `nch…`);
+/// [attachments] are the uploads its profile uses.
 final class Sub extends ClientMessage {
-  const Sub(this.topic, {this.init});
+  const Sub(this.topic, {this.init, this.attachments = const []});
 
   final String topic;
   final TopicChanges? init;
+  final List<String> attachments;
 
   @override
   String get type => 'sub';
 
   @override
   Json body() => {'topic': topic, 'set': ?init?.toJson()};
+
+  @override
+  Json? extra() => _attachments(attachments);
 }
 
 final class Leave extends ClientMessage {
@@ -145,18 +159,23 @@ final class TopicChanges {
   Json toJson() => {'desc': ?desc, 'sub': ?sub, 'tags': ?tags};
 }
 
-/// The `set` packet, named apart from `dart:core`'s `Set`.
+/// The `set` packet, named apart from `dart:core`'s `Set`. [attachments]
+/// are the uploads the new profile uses.
 final class SetMeta extends ClientMessage {
-  const SetMeta(this.topic, this.changes);
+  const SetMeta(this.topic, this.changes, {this.attachments = const []});
 
   final String topic;
   final TopicChanges changes;
+  final List<String> attachments;
 
   @override
   String get type => 'set';
 
   @override
   Json body() => {'topic': topic, ...changes.toJson()};
+
+  @override
+  Json? extra() => _attachments(attachments);
 }
 
 /// Deletes the messages in [ranges]; [hard] deletes them for everyone,
@@ -180,14 +199,22 @@ final class Del extends ClientMessage {
   };
 }
 
-/// [head] adds to the `mime` that Drafty content gets.
+/// [head] adds to the `mime` that Drafty content gets; [attachments] are
+/// the uploads the content refers to.
 final class Pub extends ClientMessage {
-  const Pub(this.topic, this.content, {required this.noEcho, this.head});
+  const Pub(
+    this.topic,
+    this.content, {
+    required this.noEcho,
+    this.head,
+    this.attachments = const [],
+  });
 
   final String topic;
   final MessageContent content;
   final bool noEcho;
   final Json? head;
+  final List<String> attachments;
 
   @override
   String get type => 'pub';
@@ -205,6 +232,9 @@ final class Pub extends ClientMessage {
       'content': content.toJson(),
     };
   }
+
+  @override
+  Json? extra() => _attachments(attachments);
 }
 
 /// [event] and [payload] are for `call` notes only.

@@ -147,6 +147,13 @@ A selector field whose meaning depends on the packet:
 - in `pres`, what changed;
 - in `note` and `info`, which notification it is.
 
+**`extra`**
+A top-level key beside a client packet, for what isn't part of the request itself:
+`{"pub": {...}, "extra": {"attachments": [...]}}`. `attachments` lists the **uploads** the packet
+refers to, as server paths (`/v0/file/s/…`), so the server keeps them; see [Files](#files).
+*In this package:* filled in by `publish`, `setDescription` and `createGroup` from the content and
+profile photo; apps never write it.
+
 ---
 
 ## Messages
@@ -200,7 +207,8 @@ A range `{at, len}` of the text. Either `tp` gives it an inline style (`ST` stro
 An object a span refers to, of type `tp`: `LN` link, `MN` mention, `HT` hashtag, `IM` image,
 `EX` attachment, `BN` button… Its `data` depends on the type.
 *In this package:* `Entity`, with `type` and `data`. `VC` marks a call message
-(`Entity.videoCallType`, `Drafty.videoCall`).
+(`Entity.videoCallType`, `Drafty.videoCall`). `IM` is read through `Entity.asImage`, and `EX`,
+`AU` (audio) and `VD` (video) through `Entity.asFile`; see [Files](#files).
 
 **History**
 Earlier messages, fetched with `get what=data` and the bounds `since` (inclusive), `before`
@@ -556,6 +564,35 @@ The payload of `ice-candidate`: `{candidate, sdpMid, sdpMLineIndex, usernameFrag
 
 ---
 
+## Files
+
+**Attachment**
+An image or file in a message, as a Drafty entity: `IM` for an image shown inline (with `width`
+and `height`), `EX` for a file. Its `data` carries `mime`, `name` and `size`, and the file either
+**in band**, as base64 in `val` (small files only: the whole message must fit
+`maxMessageSize`), or **out of band**, as a `ref` to an **upload**. A file shown as a download
+below the text, rather than at a place in it, has the span `{at: -1, len: 0}`.
+*In this package:* `DraftyImage` and `DraftyFile` (`ref`, `inlineData` and its decoded `bytes`),
+`Drafty.images`, `Drafty.files` and `Drafty.caption` for reading, `Drafty.image` and
+`Drafty.file` for sending.
+
+**Upload**
+A file sent to the server over HTTP before the message that uses it: `POST /v0/file/u/` as
+multipart, logged in with the session's token. The reply is a `ctrl` whose `params.url` is the
+file's ref and `params.expires` the time by which a message must refer to it; files nothing refers
+to are deleted. A `307` asks to send the file again elsewhere.
+*In this package:* `TinodeClient.upload` returns an `UploadResult` (`ref`, `expires`).
+
+**File ref** (`ref`)
+Where an uploaded file lives, usually relative to the server (`/v0/file/s/abc.jpg`). Downloading
+it needs the API key and a login, which must go to the server's own origin only; an absolute ref
+elsewhere is fetched without them.
+*In this package:* `TinodeConfig.resolveFile` turns a ref into a URL, `TinodeClient.download`
+fetches it (`FileDownload`), and `TinodeConfig.attachmentPath` gives the path `extra.attachments`
+lists.
+
+---
+
 ## Connection
 
 **Reconnect**
@@ -591,8 +628,10 @@ were removed meanwhile.
 ## Server facts
 
 **Endpoint**
-`ws(s)://<host>/v0/channels?apikey=<key>` for the WebSocket. Files go through
-`/v0/file/u` (upload) and `/v0/file/s` (download).
+`ws(s)://<host>/v0/channels?apikey=<key>` for the WebSocket. Files go over HTTP(S) on the same
+host: `/v0/file/u/` (upload) and `/v0/file/s/` (download), with the API key in
+`X-Tinode-APIKey` and the login in `X-Tinode-Auth` (`Token <token>`).
+*In this package:* `TinodeConfig.channelsUri`, `httpBase` and `uploadUri`.
 
 **Protocol version** (`ver`)
 Sent in `hi`, e.g. `0.25`. The server replies with its own version and `build`.

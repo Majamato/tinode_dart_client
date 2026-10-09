@@ -64,7 +64,8 @@ final class ProfilePhoto with ValueObject {
   final String? type;
   final String? data;
 
-  /// Relative refs resolve against the server's `/v0/file/s/`.
+  /// The URL of an upload, usually relative to the server; see
+  /// `TinodeConfig.resolveFile`.
   final String? ref;
 
   Json toJson() => {'type': ?type, 'data': ?data, 'ref': ?ref};

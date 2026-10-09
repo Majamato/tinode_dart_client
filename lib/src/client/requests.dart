@@ -40,10 +40,15 @@ extension Requests on Connection {
   /// Returns the topic's real name. Retries `503 locked`, which the server
   /// sends while it loads the topic, e.g. when both sides of a P2P chat
   /// attach at once.
-  Future<String> attach(String topic, {TopicChanges? init}) async {
+  Future<String> attach(
+    String topic, {
+    TopicChanges? init,
+    List<String> attachments = const [],
+  }) async {
     for (var attempt = 1; ; attempt++) {
       try {
-        return (await ctrl(Sub(topic, init: init))).topic ?? topic;
+        final sub = Sub(topic, init: init, attachments: attachments);
+        return (await ctrl(sub)).topic ?? topic;
       } on ServerException catch (e) {
         if (e.code != 503 || attempt >= attachAttempts) rethrow;
         await Future<void>.delayed(attachRetryDelay * attempt);

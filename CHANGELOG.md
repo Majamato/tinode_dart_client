@@ -1,3 +1,25 @@
+## 0.7.0
+
+Attachments.
+
+- `TinodeClient.upload` sends a file over HTTP (`/v0/file/u/`) and returns an
+  `UploadResult` (`ref`, `expires`); `download` fetches one (`FileDownload`).
+  Both log in with the latest token as headers, so they work while
+  reconnecting, and send credentials only to the server's own origin,
+  following redirects by hand. Upload progress, aborting
+  (`TransferAbortedException`), and network failures as
+  `ServerUnreachableException`.
+- `TinodeConfig.httpBase`, `uploadUri`, `resolveFile` and `tryResolveFile`
+  (refs to URLs, `http` and `https` only) and `attachmentPath`; `TinodeClient.config`.
+- `connect` and `restore` take an `httpClient`; the client closes only one it
+  made. New dependency: `http`.
+- `publish`, `setDescription` and `createGroup` list the uploads their content
+  or profile photo use in the packet's `extra.attachments`, so the server keeps
+  them.
+- Drafty images and files: `DraftyImage`, `DraftyFile`, `Entity.asImage`,
+  `Entity.asFile`, `Drafty.images`, `Drafty.files`, `Drafty.caption`, and the
+  builders `Drafty.image` and `Drafty.file` in TinodeWeb's layout.
+
 ## 0.6.0
 
 Group chat essentials.

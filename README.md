@@ -15,6 +15,8 @@ and the web.
 - Read a chat's members, with their profiles and read/received counters, for
   sender names and per-message receipts.
 - Signalling for 1:1 voice and video calls, to pair with any WebRTC stack.
+- Images and files: upload and download over HTTP, and Drafty image and file
+  entities to send and read them.
 - Delete messages, and the building blocks of a local cache: serialisable
   models, "if modified since" queries, the delete log, and a client that
   starts offline from a remembered token.
@@ -222,6 +224,62 @@ and the WebRTC `answer`. The server updates the call message as the call goes
 on (`accepted`, then `finished`, `missed`, `declined`…). See the
 [glossary](docs/glossary.md#calls) for the whole flow.
 
+## Attachments
+
+Files travel over HTTP, beside the socket: upload the file, put its `ref` into
+a Drafty entity and publish the message before the upload's `expires`. Files
+no message refers to are deleted.
+
+```dart
+final upload = await client.upload(
+  () => file.openRead(), // called again if the server redirects the upload
+  length: await file.length(),
+  filename: 'photo.jpg',
+  mimeType: 'image/jpeg',
+  onProgress: (sent, total) => print('$sent / $total'),
+);
+await client.publish(
+  topic,
+  DraftyContent(
+    Drafty.image(
+      DraftyImage(
+        ref: upload.ref,
+        mimeType: 'image/jpeg',
+        width: 1024,
+        height: 768,
+        size: await file.length(),
+      ),
+      caption: 'At the top',
+    ),
+  ),
+);
+```
+
+`publish` tells the server which uploads the message uses
+(`extra.attachments`); `setDescription` and `createGroup` do the same for a
+profile photo given by `ref`. Use `Drafty.file` for any other file.
+
+On the receiving side, `Drafty.images`, `Drafty.files` and `Drafty.caption`
+read a message. A small file may come inline (`inlineData`, decoded by
+`bytes`); otherwise download its `ref`:
+
+```dart
+for (final image in drafty.images) {
+  final bytes = image.bytes ??
+      await http.ByteStream((await client.download(image.ref!)).bytes).toBytes();
+}
+```
+
+Both calls need a login but not a live socket, so they keep working while the
+client reconnects. Credentials go only to the server's own origin, as headers:
+a `ref` elsewhere, or a redirect to storage elsewhere, is fetched without them.
+A refusal throws `ServerException` (413 means too large, see
+`serverInfo.maxFileUploadSize`), a network failure
+`ServerUnreachableException`, and completing an `abortTrigger` cancels a
+transfer with `TransferAbortedException`. On the web, the server's
+`cors_origins` must allow the app, and the browser buffers uploads, so
+progress jumps.
+
 ## Caching and offline
 
 The client keeps no state of its own, but gives a cache what it needs:
@@ -252,15 +310,15 @@ in `Disconnected`.
 ## Roadmap
 
 Built so far: the happy path, reconnection, calls, offline building blocks, finding people and
-starting chats, group chat essentials. Next, in this order, each feature landing here first and then in
+starting chats, group chat essentials, attachments. Next, in this order, each feature landing here first and then in
 [`tinode_flutter_chat`](../tinode_flutter_chat):
 
 1. ~~**Find people and start chats**~~: done in 0.5.0 (`find`, `createGroup`,
    `setSubscription`, `setDescription`, `setTags`).
 2. ~~**Group chat essentials**~~: done in 0.6.0 (members with `getSubscriptions(userId:)`,
    receipts and typing from `info`).
-3. **Attachments**: file upload and download over HTTP (`/v0/file/u`, `/v0/file/s`), Drafty
-   image and file entities.
+3. ~~**Attachments**~~: done in 0.7.0 (`upload`, `download`, `resolveFile`,
+   `Drafty.image`/`file`, `extra.attachments`).
 4. **Account and profile**: account creation (`acc`), profile and password changes, deleting
    topics, subscriptions and users (`del` beyond messages).
 5. **Push**: registering the device token for push notifications (`hi dev`).

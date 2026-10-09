@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
 import 'package:tinode_dart_client/src/client/connection_status.dart';
 import 'package:tinode_dart_client/src/client/connection_supervisor.dart';
+import 'package:tinode_dart_client/src/client/file_transfer.dart';
 import 'package:tinode_dart_client/src/client/requests.dart';
 import 'package:tinode_dart_client/src/client/results.dart';
 import 'package:tinode_dart_client/src/client/tinode_config.dart';
@@ -28,7 +30,12 @@ const _notModified = 304;
 /// [status]. There is no logout: [close] it and connect again to switch
 /// users.
 final class TinodeClient {
-  TinodeClient._(this._supervisor) {
+  TinodeClient._(this._supervisor, http.Client? httpClient)
+    : _files = FileTransfer(
+        _supervisor.config,
+        () => _supervisor.token,
+        client: httpClient,
+      ) {
     // A login the client makes on its own, after a reconnect or restore.
     _supervisor.statusChanges.listen((status) {
       if (status case Connected(:final login?)) _userId = login.userId;
@@ -47,27 +54,38 @@ final class TinodeClient {
     TinodeConfig config, {
     required String token,
     SocketConnector connector = WebSocket.connect,
+    http.Client? httpClient,
   }) => TinodeClient._(
     ConnectionSupervisor.restore(config, connector, token: token),
+    httpClient,
   );
 
   static const String protocolVersion = wireVersion;
 
   /// Opens the socket and performs the `hi` handshake; an unreachable
   /// server throws [ServerUnreachableException]. Pass [connector] to tune
-  /// the socket, e.g. `dart:io` ping frames.
+  /// the socket, e.g. `dart:io` ping frames, and [httpClient] for file
+  /// transfers; the client closes only an HTTP client it made itself.
   static Future<TinodeClient> connect(
     TinodeConfig config, {
     SocketConnector connector = WebSocket.connect,
-  }) async =>
-      TinodeClient._(await ConnectionSupervisor.open(config, connector));
+    http.Client? httpClient,
+  }) async => TinodeClient._(
+    await ConnectionSupervisor.open(config, connector),
+    httpClient,
+  );
 
   final ConnectionSupervisor _supervisor;
+  final FileTransfer _files;
   String? _userId;
 
   /// The tail of the [find] calls, which take turns: `fnd` holds one
   /// query at a time.
   Future<void> _finds = Future.value();
+
+  /// What the client was started with; [TinodeConfig.resolveFile] turns
+  /// file refs into URLs.
+  TinodeConfig get config => _supervisor.config;
 
   /// The server's reply to the latest `hi`.
   ServerInfo get serverInfo => _supervisor.serverInfo;
@@ -122,6 +140,7 @@ final class TinodeClient {
       desc: _desc(public: public, private: private),
       tags: tags.isEmpty ? null : tags,
     ),
+    attachments: _photoAttachments(public),
   );
 
   /// Finds users and groups by their tags. In [query] a space means AND
@@ -235,7 +254,11 @@ final class TinodeClient {
       defaultAccess: defaultAccess,
     );
     if (desc == null) throw ArgumentError('nothing to change');
-    await _set(topic, TopicChanges(desc: desc));
+    await _set(
+      topic,
+      TopicChanges(desc: desc),
+      attachments: _photoAttachments(public),
+    );
   }
 
   /// With [userId], adds that user to the group, which needs the `S`
@@ -264,12 +287,26 @@ final class TinodeClient {
 
   /// With [noEcho] the sender's own sessions get no `data` copy. [head]
   /// adds headers; keys of your own start with `x-<app>-`.
+  ///
+  /// Files the content refers to that were uploaded to this server are
+  /// listed in the packet's `extra.attachments`, so the server keeps them.
   Future<PublishResult> publish(
     String topic,
     MessageContent content, {
     bool noEcho = false,
     Json? head,
-  }) => _publish(Pub(topic, content, noEcho: noEcho, head: head));
+  }) => _publish(
+    Pub(
+      topic,
+      content,
+      noEcho: noEcho,
+      head: head,
+      attachments: switch (content) {
+        DraftyContent(:final drafty) => _attachments(drafty.fileRefs),
+        _ => const [],
+      },
+    ),
+  );
 
   /// Deletes the messages in [ranges] and returns the deletion's delete
   /// ID. By default only for this user; [hard] deletes them for everyone,
@@ -357,16 +394,81 @@ final class TinodeClient {
   void resume({Duration? probeTimeout}) =>
       _supervisor.resume(probeTimeout: probeTimeout);
 
-  Future<void> close() => _supervisor.close();
+  /// Uploads a file of [length] bytes for a message or a profile photo.
+  /// Put the result's `ref` into a Drafty entity (see [Drafty.image] and
+  /// [Drafty.file]) or a [ProfilePhoto], and send it before `expires`:
+  /// files nothing refers to are deleted. [publish] and [setDescription]
+  /// tell the server which files a message or profile uses.
+  ///
+  /// [openRead] is called once per attempt, since the server may ask for
+  /// the file to be sent again elsewhere. It needs a login but not a live
+  /// socket: it works while [Reconnecting], with the latest token; without
+  /// any it throws [StateError].
+  ///
+  /// [onProgress] counts the bytes handed to the HTTP client; in browsers,
+  /// which buffer the body, it jumps. Completing [abortTrigger] cancels the
+  /// upload with [TransferAbortedException]. The server refusing the file
+  /// throws [ServerException] (413: too large), and a network failure
+  /// [ServerUnreachableException].
+  Future<UploadResult> upload(
+    Stream<List<int>> Function() openRead, {
+    required int length,
+    required String filename,
+    String? mimeType,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
+  }) => _files.upload(
+    openRead,
+    length: length,
+    filename: filename,
+    mimeType: mimeType,
+    onProgress: onProgress,
+    abortTrigger: abortTrigger,
+  );
 
-  Future<String> _subscribe(String topic, {TopicChanges? init}) async {
-    final name = await _supervisor.connection.attach(topic, init: init);
+  /// Fetches the file [ref] names, resolved with
+  /// [TinodeConfig.resolveFile]. The login goes only to this server: a ref
+  /// elsewhere, or a redirect leaving it, is fetched without it. Like
+  /// [upload], it needs a token but no live socket, and throws the same
+  /// exceptions. Browsers follow redirects themselves.
+  Future<FileDownload> download(String ref, {Future<void>? abortTrigger}) =>
+      _files.download(ref, abortTrigger: abortTrigger);
+
+  Future<void> close() async {
+    _files.close();
+    await _supervisor.close();
+  }
+
+  Future<String> _subscribe(
+    String topic, {
+    TopicChanges? init,
+    List<String> attachments = const [],
+  }) async {
+    final name = await _supervisor.connection.attach(
+      topic,
+      init: init,
+      attachments: attachments,
+    );
     _supervisor.attached.add(name);
     return name;
   }
 
-  Future<CtrlMessage> _set(String topic, TopicChanges changes) =>
-      _supervisor.connection.ctrl(SetMeta(topic, changes));
+  Future<CtrlMessage> _set(
+    String topic,
+    TopicChanges changes, {
+    List<String> attachments = const [],
+  }) => _supervisor.connection.ctrl(
+    SetMeta(topic, changes, attachments: attachments),
+  );
+
+  /// The server paths of [refs] that name uploads on this server, once
+  /// each; foreign URLs are left out.
+  List<String> _attachments(Iterable<String> refs) => {
+    for (final ref in refs) ?_supervisor.config.attachmentPath(ref),
+  }.toList();
+
+  List<String> _photoAttachments(Profile? profile) =>
+      _attachments([?profile?.photo?.ref]);
 
   static Json? _desc({
     Profile? public,

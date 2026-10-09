@@ -132,3 +132,34 @@ final class PublishResult with ValueObject {
   @override
   List<Object?> get props => [seq, time];
 }
+
+/// A file the server took. [ref] goes into a Drafty entity or a profile
+/// photo; a message must refer to it before [expires], or the server may
+/// delete it. [expires] is on this device's clock: the lifetime the server
+/// gave the upload, counted from when its reply arrived.
+final class UploadResult with ValueObject {
+  const UploadResult({required this.ref, this.expires});
+
+  final String ref;
+  final DateTime? expires;
+
+  @override
+  List<Object?> get props => [ref, expires];
+}
+
+/// A file on its way from the server. [bytes] can be listened to once.
+final class FileDownload {
+  const FileDownload({
+    required this.bytes,
+    this.length,
+    this.mimeType,
+    this.etag,
+  });
+
+  final Stream<List<int>> bytes;
+
+  /// The size in bytes, when the server sends it.
+  final int? length;
+  final String? mimeType;
+  final String? etag;
+}

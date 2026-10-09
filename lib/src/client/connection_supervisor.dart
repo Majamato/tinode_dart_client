@@ -67,6 +67,7 @@ final class ConnectionSupervisor {
   /// Attached topics by their real names, restored after a drop.
   final attached = <String>{};
 
+  TinodeConfig get config => _config;
   ServerInfo get serverInfo => _serverInfo;
   ConnectionStatus get status => _status;
   Stream<ConnectionStatus> get statusChanges => _statuses.stream;

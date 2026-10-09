@@ -57,3 +57,13 @@ final class ServerUnreachableException extends TinodeException {
   @override
   String toString() => 'ServerUnreachableException($error)';
 }
+
+/// An upload or download was cancelled through its `abortTrigger`.
+final class TransferAbortedException extends TinodeException {
+  const TransferAbortedException(this.url);
+
+  final Uri url;
+
+  @override
+  String toString() => 'TransferAbortedException($url)';
+}
