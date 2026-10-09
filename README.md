@@ -12,6 +12,8 @@ and the web.
 - Receive messages, presence and typing/read notifications as typed streams.
 - Find users and groups by tag, open 1:1 chats, create groups and add
   members.
+- Read a chat's members, with their profiles and read/received counters, for
+  sender names and per-message receipts.
 - Signalling for 1:1 voice and video calls, to pair with any WebRTC stack.
 - Delete messages, and the building blocks of a local cache: serialisable
   models, "if modified since" queries, the delete log, and a client that
@@ -156,6 +158,39 @@ await client.setSubscription(group, userId: bob.topic);
 The creator of a chat gets no `pres` for it: refresh the chat list
 (`getSubscriptions('me')`) after creating one.
 
+## Group chats
+
+A chat's members come from `getSubscriptions` on its topic: each has a
+`userId`, a `public` profile for sender names and avatars, and the `read` and
+`received` counters receipts are made of. Their changes arrive on `info` while
+the chat is attached:
+
+```dart
+final members = {
+  for (final m in await client.getSubscriptions(group)) m.userId!: m,
+};
+client.info.where((i) => i.topic == group).listen((i) {
+  switch (i.event) {
+    case InfoEvent.read || InfoEvent.received:
+      // Raise members[i.from]'s counter to i.seq: a message is read by
+      // everyone once every other member's read is at least its seq.
+      break;
+    case InfoEvent.typing:
+      showTyping(members[i.from]?.public?.name);
+    case _:
+      break;
+  }
+});
+```
+
+Mark messages received as they arrive (`markReceived`), even for chats you
+aren't attached to, after a `pres msg` on `me`; read markers count only from
+an attached chat. A member who joins or leaves shows as `pres acs` on the
+topic, with `source` naming them: fetch that one with
+`getSubscriptions(group, userId: source)`, where `[]` means they left.
+In a 1:1 chat the members carry counters but no profile: the peer's profile
+is the chat's.
+
 ## Calls
 
 The client carries the signalling of Tinode's 1:1 calls; the media is up to
@@ -217,13 +252,13 @@ in `Disconnected`.
 ## Roadmap
 
 Built so far: the happy path, reconnection, calls, offline building blocks, finding people and
-starting chats. Next, in this order, each feature landing here first and then in
+starting chats, group chat essentials. Next, in this order, each feature landing here first and then in
 [`tinode_flutter_chat`](../tinode_flutter_chat):
 
 1. ~~**Find people and start chats**~~: done in 0.5.0 (`find`, `createGroup`,
    `setSubscription`, `setDescription`, `setTags`).
-2. **Group chat essentials**: reading members' profiles and read/received counters for sender
-   names and per-message receipts. Typing and read notes are already here.
+2. ~~**Group chat essentials**~~: done in 0.6.0 (members with `getSubscriptions(userId:)`,
+   receipts and typing from `info`).
 3. **Attachments**: file upload and download over HTTP (`/v0/file/u`, `/v0/file/s`), Drafty
    image and file entities.
 4. **Account and profile**: account creation (`acc`), profile and password changes, deleting

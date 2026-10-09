@@ -135,6 +135,26 @@ void main() {
     expect(chat.online, isTrue);
   });
 
+  test('meta with the members of a group', () {
+    final msg = parse(
+      '{"meta":{"id":"5","topic":"grpzu_cngImgQI","ts":"2026-10-08T23:31:57.010Z","sub":['
+      '{"user":"usr_4r93CV9-lM","updated":"2026-10-08T23:31:58.166Z",'
+      '"acs":{"want":"JRWPS","given":"JRWPS","mode":"JRWPS"},"online":true,'
+      '"read":2,"recv":1,"public":{"fn":"Carol Xmas","photo":{"data":"…"}}},'
+      '{"user":"usrMMHQIDZI0e8","updated":"2026-10-08T23:31:56.554Z",'
+      '"acs":{"want":"JRWPASDO","given":"JRWPASDO","mode":"JRWPASDO"},'
+      '"public":{"fn":"Alice Hatter"}}]}}',
+    );
+    final [carol, alice] = (msg! as MetaMessage).subscriptions;
+    expect(carol.topic, isNull);
+    expect(carol.userId, 'usr_4r93CV9-lM');
+    expect(carol.public?.name, 'Carol Xmas');
+    expect((carol.read, carol.received), (2, 1));
+    expect(carol.access?.mode.has(Permission.read), isTrue);
+    // Zero counters are left out on the wire.
+    expect((alice.read, alice.received), (0, 0));
+  });
+
   test('meta on fnd holds search results, not subscriptions', () {
     final msg =
         parse(

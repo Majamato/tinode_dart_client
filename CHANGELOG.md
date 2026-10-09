@@ -1,3 +1,15 @@
+## 0.6.0
+
+Group chat essentials.
+
+- `getSubscriptions(topic, userId:)` reads one member (`get sub` with
+  `user`); `[]` means they aren't one. Without it, a non-`me` topic gives all
+  its members, with their profiles and `read`/`received` counters.
+- Documented, and tested on a live server: other members' read and received
+  markers arrive on `info`; `markReceived` counts from a chat that isn't
+  attached, `markRead` doesn't; members joining or leaving show as `pres acs`
+  with `source` naming them; a 1:1 chat's members carry no profile.
+
 ## 0.5.0
 
 Finding people and starting chats.

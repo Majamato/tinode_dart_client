@@ -489,6 +489,34 @@ void main() {
       expect(await subs, isEmpty);
     });
 
+    test('getSubscriptions reads one member, or none on 204', () async {
+      var subs = client.getSubscriptions('grpX', userId: 'usrB');
+      var get = await server.next('get');
+      expect(get, {
+        'id': isA<String>(),
+        'topic': 'grpX',
+        'what': 'sub',
+        'sub': {'user': 'usrB'},
+      });
+      server.send({
+        'meta': {
+          'id': get['id'],
+          'topic': 'grpX',
+          'ts': ts,
+          'sub': [
+            {'user': 'usrB', 'read': 4, 'recv': 6},
+          ],
+        },
+      });
+      final member = (await subs).single;
+      expect((member.userId, member.read, member.received), ('usrB', 4, 6));
+
+      subs = client.getSubscriptions('grpX', userId: 'usrC');
+      get = await server.next('get');
+      server.ctrl(get, code: 204);
+      expect(await subs, isEmpty);
+    });
+
     group('if modified since', () {
       final since = DateTime.utc(2026, 10, 1, 8, 30, 0, 250);
 

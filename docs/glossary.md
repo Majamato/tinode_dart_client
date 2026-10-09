@@ -46,7 +46,14 @@ The subscriptions of the `me` topic: every chat the user takes part in. You read
 chat exists.
 
 **Member**
-An entry in the subscriptions of any topic other than `me`: a user who belongs to that topic.
+An entry in the subscriptions of any topic other than `me`: a user who belongs to that topic. `get
+what=sub` on a group lists them all, each with `user`, `public`, `acs`, `online` and the
+`read`/`recv` counters; `sub: {user}` asks for one, and a user who isn't a member gives nothing
+(204). On a P2P topic it lists both users, with counters but no `public` (the peer's is the
+topic's `desc.public`). Attached members get `pres acs` with `src` naming a member who joins or
+leaves; the user who made the change gets none.
+*In this package:* `getSubscriptions(topic, userId:)`, whose `Subscription`s have `userId` set
+and `topic` null.
 
 **Peer**
 The other user in a P2P chat.
@@ -205,9 +212,13 @@ Earlier messages, fetched with `get what=data` and the bounds `since` (inclusive
 
 **read / recv**
 The highest `seq` the user has **read** or **received** in a topic. The client advances them by
-sending `note read` or `note recv`.
+sending `note read` or `note recv`, and the server forwards each to the members attached to the
+topic as `info` naming the user in `from`. They are separate: reading doesn't raise `recv`.
+Publishing moves the sender's own to their message. `note recv` counts even from a session that
+isn't attached to the topic (e.g. after `pres msg` on `me`); `note read` there is ignored.
+Zero counters are left out on the wire.
 *In this package:* the fields `read` and `received`, advanced with `markRead` and
-`markReceived`.
+`markReceived`; other members' arrive on `TinodeClient.info`.
 
 **Unread**
 `seq - read`: the number of messages the user hasn't read yet.

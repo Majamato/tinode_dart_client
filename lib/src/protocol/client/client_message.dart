@@ -83,9 +83,14 @@ final class Get extends ClientMessage {
     : this._(topic, 'desc', {'ims': ?ifModifiedSince?.wire});
 
   /// [ifModifiedSince] returns only the subscriptions changed or removed
-  /// since, the unchanged `public` and `private` left out.
-  Get.sub(String topic, {DateTime? ifModifiedSince, int? limit})
-    : this._(topic, 'sub', {'ims': ?ifModifiedSince?.wire, 'limit': ?limit});
+  /// since, the unchanged `public` and `private` left out. [userId] asks
+  /// for that one member only.
+  Get.sub(String topic, {DateTime? ifModifiedSince, int? limit, String? userId})
+    : this._(topic, 'sub', {
+        'ims': ?ifModifiedSince?.wire,
+        'limit': ?limit,
+        'user': ?userId,
+      });
 
   /// Messages with `since <= seq < before`.
   Get.data(String topic, {int? since, int? before, int? limit})

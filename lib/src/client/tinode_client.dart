@@ -163,7 +163,10 @@ final class TinodeClient {
     _ => null,
   };
 
-  /// On `me` these are the user's chats; elsewhere, the topic's members.
+  /// On `me` these are the user's chats; elsewhere, the topic's members,
+  /// each with its `userId`, `public` profile, `access` and the `read` and
+  /// `received` counters receipts are made of. [userId] asks for one
+  /// member; `[]` then means they aren't one.
   ///
   /// With [ifModifiedSince] only the subscriptions changed since come back,
   /// and those removed since carry `deleted`. A `public` or `private` left
@@ -172,8 +175,14 @@ final class TinodeClient {
     String topic, {
     DateTime? ifModifiedSince,
     int? limit,
+    String? userId,
   }) async {
-    final get = Get.sub(topic, ifModifiedSince: ifModifiedSince, limit: limit);
+    final get = Get.sub(
+      topic,
+      ifModifiedSince: ifModifiedSince,
+      limit: limit,
+      userId: userId,
+    );
     try {
       return switch (await _supervisor.connection.request(get)) {
         MetaMessage(:final subscriptions) => subscriptions,
