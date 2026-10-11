@@ -32,7 +32,7 @@ const _resetStarted = 301;
 
 /// A connection to a Tinode server that outlives dropped sockets: see
 /// [status]. There is no logout: [close] it and connect again to switch
-/// users.
+/// users, clearing the push device token first ([setDeviceToken]).
 final class TinodeClient {
   TinodeClient._(this._supervisor, http.Client? httpClient)
     : _files = FileTransfer(
@@ -215,6 +215,28 @@ final class TinodeClient {
         tmpSecret: _base64('$code:email:$email'),
       ),
     );
+  }
+
+  /// Registers this device's push notification [token], e.g. from
+  /// Firebase Cloud Messaging, for the logged-in user; null removes it.
+  /// Call it again whenever the push service renews the token. Set
+  /// [TinodeConfig.platform] too, so the server knows how to push.
+  ///
+  /// The token is kept: every later session sends it, after a reconnect
+  /// or [TinodeClient.restore], and a token set before login is
+  /// registered once a login succeeds. While connected and logged in, it
+  /// is sent at once and a refusal throws [ServerException]; otherwise
+  /// this only keeps it.
+  ///
+  /// The server keeps a token until it is removed, so remove it before
+  /// [close] when the user signs out, or the device keeps getting their
+  /// pushes. [deleteAccount] needs no such step.
+  Future<void> setDeviceToken(String? token) async {
+    _supervisor.deviceToken = token;
+    final connection = _supervisor.ready;
+    if (_userId != null && connection != null) {
+      await _supervisor.syncDevice(connection);
+    }
   }
 
   /// Deletes the logged-in user's account, with their chats and messages,
@@ -624,9 +646,18 @@ final class TinodeClient {
     await _supervisor.connection.login(scheme, secret, codes: codes),
   );
 
-  LoginResult _loggedIn(LoginResult result) {
+  /// Also registers a device token set since the session's `hi`, which
+  /// the server refuses before a login.
+  Future<LoginResult> _loggedIn(LoginResult result) async {
     _supervisor.token = result.token;
     _userId = result.userId;
+    if (_supervisor.ready case final connection?) {
+      try {
+        await _supervisor.syncDevice(connection);
+      } on TinodeException {
+        // The login stands; the next session's hi carries the token.
+      }
+    }
     return result;
   }
 

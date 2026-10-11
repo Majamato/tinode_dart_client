@@ -19,6 +19,7 @@ export 'src/model/message_content.dart';
 export 'src/model/message_head.dart';
 export 'src/model/private_settings.dart';
 export 'src/model/profile.dart';
+export 'src/model/push.dart';
 export 'src/model/subscription.dart';
 export 'src/model/topic_description.dart';
 export 'src/model/topic_kind.dart';

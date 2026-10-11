@@ -8,6 +8,7 @@ final class TinodeConfig {
     required this.apiKey,
     required this.userAgent,
     this.language,
+    this.platform,
     this.requestTimeout = const Duration(seconds: 10),
     this.reconnect = const ReconnectPolicy(),
     this.probeAfter = const Duration(seconds: 25),
@@ -25,6 +26,11 @@ final class TinodeConfig {
 
   /// Language tag such as `en-US`, used by the server for push texts.
   final String? language;
+
+  /// The OS the device token is for, which tells the server how to push
+  /// to it (`TinodeClient.setDeviceToken`). The server reads it from the
+  /// first `hi` only; without it, it guesses from [userAgent].
+  final DevicePlatform? platform;
   final Duration requestTimeout;
   final ReconnectPolicy reconnect;
 
@@ -34,6 +40,29 @@ final class TinodeConfig {
 
   /// How long a probe may go unanswered before the socket counts as dead.
   final Duration probeTimeout;
+
+  /// A copy with the given fields replaced; null keeps a field as it is.
+  TinodeConfig copyWith({
+    Uri? server,
+    String? apiKey,
+    String? userAgent,
+    String? language,
+    DevicePlatform? platform,
+    Duration? requestTimeout,
+    ReconnectPolicy? reconnect,
+    Duration? probeAfter,
+    Duration? probeTimeout,
+  }) => TinodeConfig(
+    server: server ?? this.server,
+    apiKey: apiKey ?? this.apiKey,
+    userAgent: userAgent ?? this.userAgent,
+    language: language ?? this.language,
+    platform: platform ?? this.platform,
+    requestTimeout: requestTimeout ?? this.requestTimeout,
+    reconnect: reconnect ?? this.reconnect,
+    probeAfter: probeAfter ?? this.probeAfter,
+    probeTimeout: probeTimeout ?? this.probeTimeout,
+  );
 
   Uri get channelsUri => server.replace(
     path: '$_prefix/v0/channels',
@@ -115,3 +144,6 @@ final class TinodeConfig {
   /// The server's path prefix, without a trailing slash.
   String get _prefix => server.path.replaceFirst(RegExp(r'/+$'), '');
 }
+
+/// The OS of a device, for push notifications (`platf` in `hi`).
+enum DevicePlatform { android, ios, web }

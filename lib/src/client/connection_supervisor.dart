@@ -70,6 +70,13 @@ final class ConnectionSupervisor {
   /// Attached topics by their real names, restored after a drop.
   final attached = <String>{};
 
+  /// The push device token the app wants registered, null for none. Each
+  /// session's `hi` carries it; [syncDevice] sends a change.
+  String? deviceToken;
+
+  /// The device token the current session's server side holds.
+  String? _sentDevice;
+
   TinodeConfig get config => _config;
   ServerInfo get serverInfo => _serverInfo;
   ConnectionStatus get status => _status;
@@ -124,10 +131,24 @@ final class ConnectionSupervisor {
       probeTimeout: _config.probeTimeout,
     );
     try {
-      return (connection, await connection.hello(_config));
+      final device = deviceToken;
+      final info = await connection.hello(_config, device: device);
+      _sentDevice = device;
+      return (connection, info);
     } on Object {
       await connection.close();
       rethrow;
+    }
+  }
+
+  /// Sends [deviceToken] to the server when the session holds another
+  /// one, until they agree. Needs a login: the server refuses a later `hi`
+  /// before it.
+  Future<void> syncDevice(Connection connection) async {
+    while (deviceToken != _sentDevice) {
+      final device = deviceToken;
+      await connection.updateDevice(_config, device);
+      _sentDevice = device;
     }
   }
 
@@ -186,6 +207,15 @@ final class ConnectionSupervisor {
         } on ServerException catch (e) {
           lost[topic] = e;
           attached.remove(topic);
+        }
+      }
+      // The token may have changed since the handshake. Not worth failing
+      // the recovery for: the next session's hi carries it again.
+      if (login != null) {
+        try {
+          await syncDevice(connection);
+        } on ServerException {
+          // Kept for the next session.
         }
       }
       if (epoch != _epoch) return;

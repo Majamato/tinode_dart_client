@@ -20,6 +20,8 @@ and the web.
 - Accounts: sign up (with an email to confirm, where the server wants one),
   change the password or login, reset a forgotten password by email, and
   delete the account.
+- Push notifications: register the device's push token, and read the
+  server's pushes in a background handler.
 - Delete chats, remove members from groups, delete messages, and the building blocks of a local cache: serialisable
   models, "if modified since" queries, the delete log, and a client that
   starts offline from a remembered token.
@@ -346,6 +348,67 @@ their side. `deleteSubscription(group, userId:)` removes a member (with the
 `A` permission, from an attached chat). Either way the others get `pres gone`
 on `me`. `deleteAccount` deletes the user and closes the client.
 
+## Push notifications
+
+The client doesn't talk to a push service. Your app gets the device token
+from one, such as `firebase_messaging`, and hands it over. Also set the
+platform, so the server knows how to push to the token:
+
+```dart
+final client = await TinodeClient.connect(
+  TinodeConfig(
+    server: server,
+    apiKey: apiKey,
+    userAgent: 'MyApp/1.0',
+    platform: DevicePlatform.android,
+  ),
+);
+await client.setDeviceToken(await FirebaseMessaging.instance.getToken());
+FirebaseMessaging.instance.onTokenRefresh.listen(client.setDeviceToken);
+```
+
+The client keeps the token and sends it with every session's `hi`, after a
+reconnect or `restore` too. A token set before login is registered once a
+login succeeds.
+
+The server has no logout and keeps a token until it is removed. Remove it
+before closing when the user signs out, or the device keeps getting their
+pushes:
+
+```dart
+await client.setDeviceToken(null);
+await client.close();
+```
+
+That needs a live connection. For a sign-out while offline, also delete the
+token at the push service (`FirebaseMessaging.instance.deleteToken()`).
+Deleting the account drops its tokens.
+
+A push carries strings. `TinodePush.tryParse` reads them, needs no client,
+and returns null for pushes that aren't Tinode's:
+
+```dart
+@pragma('vm:entry-point')
+Future<void> onBackgroundMessage(RemoteMessage message) async {
+  switch (TinodePush.tryParse(message.data)) {
+    case MessagePush(silent: false, :final topic, :final text):
+      showNotification(topic, text ?? '');
+    case ReadPush(:final topic):
+      clearNotifications(topic); // read on another device
+    case _:
+  }
+}
+```
+
+`silent` marks pushes with nothing to show: the user saw the message already,
+or the push only updates state. A 1:1 chat's `topic` is the sender's user ID,
+which is also the chat to open. `MessagePush.callState` is
+`CallState.started` for a call that rings.
+
+The server pushes only once its push adapter is set up (`push` in
+`tinode.conf`), for FCM with a service account of the same Firebase project
+as the app. Without one it still stores tokens, but sends nothing.
+
 ## Caching and offline
 
 The client keeps no state of its own, but gives a cache what it needs:
@@ -376,7 +439,7 @@ in `Disconnected`.
 ## Roadmap
 
 Built so far: the happy path, reconnection, calls, offline building blocks, finding people and
-starting chats, group chat essentials, attachments, accounts. Next, in this order, each feature landing here first and then in
+starting chats, group chat essentials, attachments, accounts, push. Next, in this order, each feature landing here first and then in
 [`tinode_flutter_chat`](../tinode_flutter_chat):
 
 1. ~~**Find people and start chats**~~: done in 0.5.0 (`find`, `createGroup`,
@@ -389,7 +452,8 @@ starting chats, group chat essentials, attachments, accounts. Next, in this orde
    `createAccount(email:)`, `loginBasic(codes:)`,
    `requestPasswordReset`/`resetPassword`, `deleteTopic`, `deleteSubscription`,
    `deleteAccount`).
-5. **Push**: registering the device token for push notifications (`hi dev`).
+5. ~~**Push**~~: done in 0.9.0 (`setDeviceToken`, `TinodeConfig.platform`,
+   `TinodePush.tryParse`).
 6. Local search and cache upkeep happen in the Flutter package only.
 7. UI/UX work happens in the Flutter package only.
 

@@ -27,18 +27,33 @@ sealed class ClientMessage {
 Json? _attachments(List<String> paths) =>
     paths.isEmpty ? null : {'attachments': paths};
 
+/// [dev] is the device token for push notifications and [platf] its OS.
 final class Hi extends ClientMessage {
-  const Hi({required this.ver, required this.ua, this.lang});
+  const Hi({
+    required this.ver,
+    required this.ua,
+    this.lang,
+    this.dev,
+    this.platf,
+  });
 
   final String ver;
   final String ua;
   final String? lang;
+  final String? dev;
+  final String? platf;
 
   @override
   String get type => 'hi';
 
   @override
-  Json body() => {'ver': ver, 'ua': ua, 'lang': ?lang};
+  Json body() => {
+    'ver': ver,
+    'ua': ua,
+    'lang': ?lang,
+    'dev': ?dev,
+    'platf': ?platf,
+  };
 }
 
 /// [codes] confirm credentials, by method, e.g. `{'email': '123456'}`.

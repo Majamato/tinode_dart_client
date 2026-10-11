@@ -1,3 +1,20 @@
+## 0.9.0
+
+Push notifications.
+
+- `TinodeClient.setDeviceToken(token)` registers the device's push token for
+  the logged-in user (`hi dev`), and `setDeviceToken(null)` removes it
+  (`dev: ␡`). The client keeps the token: every session's `hi` carries it,
+  after a reconnect or `restore` too, and one set before login is sent once a
+  login succeeds.
+- `TinodeConfig.platform` (`DevicePlatform`) tells the server the device's OS
+  (`hi platf`).
+- `TinodeConfig.copyWith`.
+- `TinodePush.tryParse(data)` reads the data of a push from the server:
+  `MessagePush` (with the text, a Drafty preview and call state),
+  `SubscriptionPush` or `ReadPush`, and null for anything else. It needs no
+  client, so it works in a background handler.
+
 ## 0.8.0
 
 Account and profile.

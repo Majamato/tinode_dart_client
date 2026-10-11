@@ -11,6 +11,9 @@ const wireVersion = '0.25';
 /// The code of a reply that wants credentials confirmed.
 const credentialsCode = 300;
 
+/// The value that clears a field, e.g. the device token in `hi`.
+const clearValue = '\u2421';
+
 /// How often [Requests.attach] tries a topic the server reports as locked.
 const attachAttempts = 4;
 
@@ -26,14 +29,16 @@ extension Requests on Connection {
         final other => throw MalformedPacketException(message.type, other),
       };
 
-  Future<ServerInfo> hello(TinodeConfig config) async {
-    final hi = Hi(
-      ver: wireVersion,
-      ua: config.userAgent,
-      lang: config.language,
-    );
-    return ServerInfo.fromParams((await ctrl(hi)).params);
-  }
+  /// The first `hi` of a session, with the push [device] token if any:
+  /// the server registers it for the user who logs in next.
+  Future<ServerInfo> hello(TinodeConfig config, {String? device}) async =>
+      ServerInfo.fromParams((await ctrl(_hi(config, device))).params);
+
+  /// A later `hi`, allowed once logged in: replaces the session's push
+  /// device token, or with null removes it. The server also takes `ua`
+  /// and `lang` from it again, so they are repeated.
+  Future<void> updateDevice(TinodeConfig config, String? device) =>
+      ctrl(_hi(config, device ?? clearValue));
 
   /// Code 300, credentials to confirm, throws
   /// [CredentialsRequiredException].
@@ -78,3 +83,11 @@ extension Requests on Connection {
     }
   }
 }
+
+Hi _hi(TinodeConfig config, String? device) => Hi(
+  ver: wireVersion,
+  ua: config.userAgent,
+  lang: config.language,
+  dev: device,
+  platf: config.platform?.name,
+);

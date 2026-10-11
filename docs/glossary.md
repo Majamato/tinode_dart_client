@@ -716,4 +716,29 @@ Returned in the `hi` reply, e.g. `maxMessageSize`, `maxFileUploadSize`, `maxSubs
 
 **Push notifications**
 Delivered by the server through FCM or the Tinode push gateway, to a device token sent as `dev` in
-`hi`.
+`hi`. The server needs its push adapter set up with the app's own FCM project; it stores tokens
+either way.
+*In this package:* `TinodeClient.setDeviceToken`, `TinodeConfig.platform`, `TinodePush`.
+
+**Device token** (`dev`)
+The push service's address for this app on this device, e.g. an FCM registration token. The
+first `hi` of a session may carry it, and the server registers it for the user once a login
+succeeds. A later `hi`, allowed only once logged in, replaces it, and `dev: "␡"` removes it.
+The server never forgets a token on its own: the server has no logout, so an app clears it before
+signing a user out. Deleting the account drops it.
+*In this package:* `setDeviceToken(token)`, `setDeviceToken(null)` to clear.
+*Avoid:* push token, FCM token (in code).
+
+**Platform** (`platf`)
+The device's OS for push: `android`, `ios` or `web`. The server reads it from the first `hi`
+only, and guesses from the user agent without it.
+*In this package:* `TinodeConfig.platform`, a `DevicePlatform`.
+
+**Push payload**
+What a push carries, as strings: `what` (`msg` a new message, `sub` added to a chat, `read` read
+elsewhere), `topic` (as the recipient names it: the peer's user ID for a 1:1 chat), `xfrom`,
+`ts`, `seq`, and for a message `mime`, `content` (plain text cut to 128 characters), `rc` (a
+Drafty preview), `webrtc` and `aonly` for calls, `replace` for edits. `silent: true` means
+nothing to show: the user saw it already, or it only updates state.
+*In this package:* `TinodePush.tryParse`, giving `MessagePush`, `SubscriptionPush` or
+`ReadPush`.
