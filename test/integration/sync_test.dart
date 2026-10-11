@@ -4,8 +4,9 @@ library;
 import 'package:test/test.dart';
 import 'package:tinode_dart_client/tinode_dart_client.dart';
 
-// Runs against ../tinode-tests (sample users alice and bob). Asserts only on
-// what each test sends itself, since earlier runs leave history behind.
+// Runs against a Tinode server with the sample data (users alice and bob).
+// Asserts only on what each test sends itself, since earlier runs leave
+// history behind.
 final config = TinodeConfig(
   server: Uri.parse('ws://localhost:6060'),
   apiKey: 'AQEAAAABAAD_rAp4DJh05a1HAwFT3A6K',

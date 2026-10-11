@@ -120,6 +120,69 @@ void main() {
     await server.expectNoMorePackets();
   });
 
+  test('a created account logs in again with its token', () async {
+    await connect();
+    final created = client.createAccount(login: 'carol', password: 'pw');
+    server.ctrl(
+      await server.next('acc'),
+      params: {'user': 'usrC', 'token': 'tok1'},
+    );
+    await created;
+
+    await drop();
+    expect((await server.next('login'))['secret'], 'tok1');
+  });
+
+  test('a deleted topic is not attached again', () async {
+    await connect();
+    await login('tok1');
+    await attach('grpX');
+    final deleted = client.deleteTopic('grpX');
+    server.ctrl(await server.next('del'));
+    await deleted;
+
+    await drop();
+    server.ctrl(
+      await server.next('login'),
+      params: {'user': 'usrA', 'token': 'tok2'},
+    );
+    expect(
+      await statuses.next,
+      const Connected(
+        login: LoginResult(userId: 'usrA', token: 'tok2'),
+      ),
+    );
+    await server.expectNoMorePackets();
+  });
+
+  test(
+    'a topic the server evicted this user from is not attached again',
+    () async {
+      await connect();
+      await login('tok1');
+      await attach('grpX');
+      final evicted = client.events.firstWhere((m) => m is CtrlMessage);
+      server.send({
+        'ctrl': {
+          'topic': 'grpX',
+          'params': {'unsub': true},
+          'code': 205,
+          'text': 'evicted',
+          'ts': ts,
+        },
+      });
+      await evicted;
+
+      await drop();
+      server.ctrl(
+        await server.next('login'),
+        params: {'user': 'usrA', 'token': 'tok2'},
+      );
+      expect(await statuses.next, isA<Connected>());
+      await server.expectNoMorePackets();
+    },
+  );
+
   test('logs in with the newest token on the next reconnect', () async {
     await connect();
     await login('tok1');
@@ -181,6 +244,29 @@ void main() {
     );
     expect(await statuses.hasNext, isFalse);
     expect(await events, isEmpty);
+    await connector.expectNoConnect();
+  });
+
+  test('credentials to confirm end it too', () async {
+    await connect();
+    await login('tok1');
+
+    await drop();
+    server.ctrl(
+      await server.next('login'),
+      code: 300,
+      params: {
+        'cred': ['email'],
+      },
+    );
+    expect(
+      await statuses.next,
+      isA<Disconnected>().having(
+        (s) => s.cause,
+        'cause',
+        isA<CredentialsRequiredException>(),
+      ),
+    );
     await connector.expectNoConnect();
   });
 

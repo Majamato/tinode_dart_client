@@ -36,6 +36,25 @@ void main() {
       expect(info.callsEnabled, isTrue);
     });
 
+    test('reads the credentials a new account must confirm', () {
+      expect(
+        ServerInfo.fromParams({
+          'ver': '0.25',
+          'reqCred': {
+            'auth': ['email'],
+          },
+        }).requiredCredentials,
+        ['email'],
+      );
+      expect(
+        ServerInfo.fromParams({
+          'ver': '0.25',
+          'reqCred': null,
+        }).requiredCredentials,
+        isEmpty,
+      );
+    });
+
     test('accepts a single url and the credential type', () {
       final info = ServerInfo.fromParams({
         'iceServers': [

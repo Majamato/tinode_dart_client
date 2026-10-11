@@ -164,6 +164,28 @@ void main() {
       });
     });
 
+    test('copyWith replaces typed fields and keeps the rest of raw', () {
+      final read = Profile.fromJson(const {
+        'fn': 'Old',
+        'note': 'Hi',
+        'org': {'fn': 'Acme'},
+      });
+      expect(
+        read
+            .copyWith(
+              name: 'New',
+              photo: const ProfilePhoto(type: 'jpg', ref: '/v0/file/s/a.jpg'),
+            )
+            .toJson(),
+        {
+          'fn': 'New',
+          'note': 'Hi',
+          'photo': {'type': 'jpg', 'ref': '/v0/file/s/a.jpg'},
+          'org': {'fn': 'Acme'},
+        },
+      );
+    });
+
     test('no access is written as N', () {
       expect(
         DefaultAccess(

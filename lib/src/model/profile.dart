@@ -35,6 +35,20 @@ final class Profile with ValueObject {
   final ProfilePhoto? photo;
   final Json raw;
 
+  /// This profile with [name], [note] or [photo] replaced; null keeps one
+  /// as it is. Other theCard fields in [raw] are kept, so editing a profile
+  /// read from the server doesn't lose them.
+  Profile copyWith({String? name, String? note, ProfilePhoto? photo}) =>
+      Profile(
+        name: name ?? this.name,
+        note: note ?? this.note,
+        photo: photo ?? this.photo,
+        raw: {...raw}
+          ..remove('fn')
+          ..remove('note')
+          ..remove('photo'),
+      );
+
   /// The wire form; keys in [raw] win over the typed fields.
   Json toJson() => {
     'fn': ?name,

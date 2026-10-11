@@ -4,8 +4,8 @@ library;
 import 'package:test/test.dart';
 import 'package:tinode_dart_client/tinode_dart_client.dart';
 
-// Runs against ../tinode-tests, which needs ICE servers configured
-// (ICE_SERVERS_FILE) for the server to take calls. The server passes call
+// Runs against a Tinode server, which needs ICE servers configured
+// (ICE_SERVERS_FILE) to take calls. The server passes call
 // payloads on unread, so fake SDP is enough.
 final config = TinodeConfig(
   server: Uri.parse('ws://localhost:6060'),

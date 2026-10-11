@@ -141,26 +141,48 @@ void main() {
         expect(client.userId, 'usrA');
       });
 
-      test('code 300 (credentials to validate) is an error', () async {
+      test('code 300 asks for credentials to confirm', () async {
         final result = client.loginBasic('alice', 'alice123');
         server.ctrl(
           await server.next('login'),
           code: 300,
           params: {
+            'user': 'usrA',
+            'token': 'restricted',
             'cred': ['email'],
           },
         );
         await expectLater(
           result,
           throwsA(
-            isA<ServerException>().having((e) => e.code, 'code', 300).having(
-              (e) => e.params['cred'],
-              'cred',
-              ['email'],
-            ),
+            isA<CredentialsRequiredException>()
+                .having((e) => e.methods, 'methods', ['email'])
+                .having((e) => e.userId, 'userId', 'usrA'),
           ),
         );
         expect(client.userId, isNull);
+      });
+
+      test('codes confirm credentials', () async {
+        final result = client.loginBasic(
+          'alice',
+          'alice123',
+          codes: const {'email': '123456'},
+        );
+        final login = await server.next('login');
+        expect(login['cred'], [
+          {'meth': 'email', 'resp': '123456'},
+        ]);
+        server.ctrl(login, params: {'user': 'usrA', 'token': 'tok'});
+        expect((await result).token, 'tok');
+
+        final again = client.loginToken('tok', codes: const {'email': '1'});
+        final token = await server.next('login');
+        expect(token['cred'], [
+          {'meth': 'email', 'resp': '1'},
+        ]);
+        server.ctrl(token, params: {'user': 'usrA', 'token': 'tok2'});
+        await again;
       });
 
       test('a reply without a token is malformed', () async {
@@ -177,6 +199,182 @@ void main() {
           ),
         );
         expect(client.userId, isNull);
+      });
+    });
+
+    group('accounts', () {
+      String b64(String text) => base64.encode(utf8.encode(text));
+
+      test('createAccount signs up and logs in as the new user', () async {
+        final result = client.createAccount(
+          login: 'carol',
+          password: 'carol123',
+          public: const Profile(name: 'Carol'),
+          tags: const ['hiking'],
+        );
+        final acc = await server.next('acc');
+        expect(acc, {
+          'id': isA<String>(),
+          'user': 'new',
+          'scheme': 'basic',
+          'secret': b64('carol:carol123'),
+          'login': true,
+          'tags': ['hiking'],
+          'desc': {
+            'public': {'fn': 'Carol'},
+          },
+        });
+        server.ctrl(acc, params: {'user': 'usrC', 'token': 'tok'});
+        expect(await result, const LoginResult(userId: 'usrC', token: 'tok'));
+        expect(client.userId, 'usrC');
+      });
+
+      test('createAccount with an email asks to confirm it', () async {
+        final result = client.createAccount(
+          login: 'carol',
+          password: 'pw',
+          email: 'carol@example.com',
+        );
+        final acc = await server.next('acc');
+        expect(acc['cred'], [
+          {'meth': 'email', 'val': 'carol@example.com'},
+        ]);
+        server.ctrl(
+          acc,
+          code: 300,
+          params: {
+            'user': 'usrC',
+            'token': 'restricted',
+            'cred': ['email'],
+          },
+        );
+        await expectLater(
+          result,
+          throwsA(
+            isA<CredentialsRequiredException>().having(
+              (e) => e.methods,
+              'methods',
+              ['email'],
+            ),
+          ),
+        );
+        expect(client.userId, isNull);
+      });
+
+      test('createAccount leaves out what is not given', () async {
+        final result = client.createAccount(login: 'carol', password: 'pw');
+        final acc = await server.next('acc');
+        expect(
+          acc.keys,
+          unorderedEquals(['id', 'user', 'scheme', 'secret', 'login']),
+        );
+        server.ctrl(acc, params: {'user': 'usrC', 'token': 'tok'});
+        await result;
+      });
+
+      test('a taken login throws 409 and logs nobody in', () async {
+        final result = client.createAccount(login: 'alice', password: 'pw');
+        server.ctrl(await server.next('acc'), code: 409);
+        await expectLater(
+          result,
+          throwsA(isA<ServerException>().having((e) => e.code, 'code', 409)),
+        );
+        expect(client.userId, isNull);
+      });
+
+      test(
+        'changePassword keeps the login unless a new one is given',
+        () async {
+          var done = client.changePassword('new-pw');
+          var acc = await server.next('acc');
+          expect(acc, {
+            'id': isA<String>(),
+            'scheme': 'basic',
+            'secret': b64(':new-pw'),
+          });
+          server.ctrl(acc);
+          await done;
+
+          done = client.changePassword('new-pw', login: 'alicia');
+          acc = await server.next('acc');
+          expect(acc['secret'], b64('alicia:new-pw'));
+          server.ctrl(acc);
+          await done;
+        },
+      );
+
+      test('refuses an empty password or a login with a colon', () {
+        expect(() => client.changePassword(''), throwsArgumentError);
+        expect(
+          () => client.changePassword('pw', login: 'a:b'),
+          throwsArgumentError,
+        );
+        expect(
+          () => client.createAccount(login: 'a:b', password: 'pw'),
+          throwsArgumentError,
+        );
+      });
+
+      test('requestPasswordReset takes 301 as started', () async {
+        final done = client.requestPasswordReset('alice@example.com');
+        final login = await server.next('login');
+        expect(login, {
+          'id': isA<String>(),
+          'scheme': 'reset',
+          'secret': b64('basic:email:alice@example.com'),
+        });
+        server.ctrl(login, code: 301);
+        await done;
+        expect(client.userId, isNull);
+      });
+
+      test('requestPasswordReset passes other refusals on', () async {
+        final done = client.requestPasswordReset('alice@example.com');
+        server.ctrl(await server.next('login'), code: 400);
+        await expectLater(done, throwsA(isA<ServerException>()));
+      });
+
+      test('resetPassword sends the code as a one-off login', () async {
+        final done = client.resetPassword(
+          email: 'alice@example.com',
+          code: '123456',
+          password: 'new-pw',
+        );
+        final acc = await server.next('acc');
+        expect(acc, {
+          'id': isA<String>(),
+          'scheme': 'basic',
+          'secret': b64(':new-pw'),
+          'tmpscheme': 'code',
+          'tmpsecret': b64('123456:email:alice@example.com'),
+        });
+        server.ctrl(acc);
+        await done;
+        expect(client.userId, isNull);
+      });
+
+      test('deleteAccount deletes the user and closes the client', () async {
+        final done = client.loginToken('tok');
+        server.ctrl(
+          await server.next('login'),
+          params: {'user': 'usrA', 'token': 'tok'},
+        );
+        await done;
+        final statuses = client.statusChanges.toList();
+
+        final deleted = client.deleteAccount();
+        final del = await server.next('del');
+        expect(del, {
+          'id': isA<String>(),
+          'topic': 'me',
+          'what': 'user',
+          'hard': true,
+        });
+        server.ctrl(del);
+        await deleted;
+        expect(client.userId, isNull);
+        expect(client.status, const Disconnected());
+        expect(await statuses, [const Disconnected()]);
       });
     });
 
@@ -633,6 +831,57 @@ void main() {
         expect(
           () => client.deleteMessages('usrB', const []),
           throwsArgumentError,
+        );
+      });
+    });
+
+    group('deleteTopic', () {
+      test('hard deletes the topic', () async {
+        final done = client.deleteTopic('grpX');
+        final del = await server.next('del');
+        expect(del, {
+          'id': isA<String>(),
+          'topic': 'grpX',
+          'what': 'topic',
+          'hard': true,
+        });
+        server.ctrl(del);
+        await done;
+      });
+
+      test('a refusal throws', () async {
+        final done = client.deleteTopic('grpX');
+        server.ctrl(await server.next('del'), code: 403);
+        await expectLater(done, throwsA(isA<ServerException>()));
+      });
+    });
+
+    group('deleteSubscription', () {
+      test('removes the member', () async {
+        final done = client.deleteSubscription('grpX', userId: 'usrB');
+        final del = await server.next('del');
+        expect(del, {
+          'id': isA<String>(),
+          'topic': 'grpX',
+          'what': 'sub',
+          'user': 'usrB',
+        });
+        server.ctrl(del);
+        await done;
+      });
+
+      test('someone who is not a member (304) counts as removed', () async {
+        final done = client.deleteSubscription('grpX', userId: 'usrB');
+        server.ctrl(await server.next('del'), code: 304);
+        await done;
+      });
+
+      test('other refusals throw', () async {
+        final done = client.deleteSubscription('grpX', userId: 'usrB');
+        server.ctrl(await server.next('del'), code: 409);
+        await expectLater(
+          done,
+          throwsA(isA<ServerException>().having((e) => e.code, 'code', 409)),
         );
       });
     });

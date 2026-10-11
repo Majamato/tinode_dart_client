@@ -17,7 +17,10 @@ and the web.
 - Signalling for 1:1 voice and video calls, to pair with any WebRTC stack.
 - Images and files: upload and download over HTTP, and Drafty image and file
   entities to send and read them.
-- Delete messages, and the building blocks of a local cache: serialisable
+- Accounts: sign up (with an email to confirm, where the server wants one),
+  change the password or login, reset a forgotten password by email, and
+  delete the account.
+- Delete chats, remove members from groups, delete messages, and the building blocks of a local cache: serialisable
   models, "if modified since" queries, the delete log, and a client that
   starts offline from a remembered token.
 - Typed end to end:
@@ -280,6 +283,69 @@ transfer with `TransferAbortedException`. On the web, the server's
 `cors_origins` must allow the app, and the browser buffers uploads, so
 progress jumps.
 
+## Accounts
+
+A new user signs up on a fresh connection and is logged in at once: keep the
+token as after `loginBasic`. The server tags the login (`basic:<login>`), so
+others find the user by it.
+
+```dart
+final session = await client.createAccount(
+  login: 'carol',
+  password: 'carol123',
+  public: const Profile(name: 'Carol'),
+);
+saveToken(session.token);
+```
+
+A taken login throws `ServerException` 409, and a login or password the
+server's rules refuse (e.g. too short) 422.
+
+Servers that send email usually require one at sign-up
+(`client.serverInfo.requiredCredentials` lists `email`). The account is then
+created, but it can't log in until the user enters the code the server
+mailed:
+
+```dart
+try {
+  await client.createAccount(login: 'carol', password: 'carol123', email: 'carol@example.com');
+} on CredentialsRequiredException {
+  // Ask for the code from the email, then log in with it.
+  final session = await client.loginBasic(
+    'carol',
+    'carol123',
+    codes: {'email': codeFromTheEmail},
+  );
+}
+```
+
+Any login throws `CredentialsRequiredException` until the email is confirmed,
+and again after a wrong code. A photo given by ref needs a
+login to upload, so set it afterwards with `setDescription('me', public:)`,
+which is also how the profile changes later.
+
+Once logged in, `changePassword('new secret')` changes the password, and with
+`login:` the login too. A forgotten password is reset by email, from a
+connection that isn't logged in:
+
+```dart
+await client.requestPasswordReset('carol@example.com');
+// The server emails a code to the account with that address; asked again
+// while that code is valid, it throws ServerException 409 instead.
+await client.resetPassword(
+  email: 'carol@example.com',
+  code: codeFromTheEmail,
+  password: 'new secret',
+);
+await client.loginBasic('carol', 'new secret');
+```
+
+`deleteTopic` deletes a chat: for the owner of a group that deletes it for
+everyone, for anyone else it is leaving, and in a 1:1 chat the peer keeps
+their side. `deleteSubscription(group, userId:)` removes a member (with the
+`A` permission, from an attached chat). Either way the others get `pres gone`
+on `me`. `deleteAccount` deletes the user and closes the client.
+
 ## Caching and offline
 
 The client keeps no state of its own, but gives a cache what it needs:
@@ -310,7 +376,7 @@ in `Disconnected`.
 ## Roadmap
 
 Built so far: the happy path, reconnection, calls, offline building blocks, finding people and
-starting chats, group chat essentials, attachments. Next, in this order, each feature landing here first and then in
+starting chats, group chat essentials, attachments, accounts. Next, in this order, each feature landing here first and then in
 [`tinode_flutter_chat`](../tinode_flutter_chat):
 
 1. ~~**Find people and start chats**~~: done in 0.5.0 (`find`, `createGroup`,
@@ -319,11 +385,89 @@ starting chats, group chat essentials, attachments. Next, in this order, each fe
    receipts and typing from `info`).
 3. ~~**Attachments**~~: done in 0.7.0 (`upload`, `download`, `resolveFile`,
    `Drafty.image`/`file`, `extra.attachments`).
-4. **Account and profile**: account creation (`acc`), profile and password changes, deleting
-   topics, subscriptions and users (`del` beyond messages).
+4. ~~**Account and profile**~~: done in 0.8.0 (`createAccount`, `changePassword`,
+   `createAccount(email:)`, `loginBasic(codes:)`,
+   `requestPasswordReset`/`resetPassword`, `deleteTopic`, `deleteSubscription`,
+   `deleteAccount`).
 5. **Push**: registering the device token for push notifications (`hi dev`).
 6. Local search and cache upkeep happen in the Flutter package only.
 7. UI/UX work happens in the Flutter package only.
+
+## Running the tests
+
+`dart test` runs the unit tests only, without needing a server. The integration tests
+are skipped unless you pick a preset. They need a Tinode server at `ws://localhost:6060`
+with the sample data and the demo key. The official `tinode/tinode-postgres` image
+provides both. This `docker-compose.yml` starts one:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  tinode:
+    image: tinode/tinode-postgres:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "6060:6060"
+    environment:
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/tinode
+      WAIT_FOR: postgres:5432
+```
+
+```sh
+docker compose up -d
+dart test -P integration
+```
+
+The first start creates the database and loads the sample users. That takes a moment,
+and `docker compose logs -f tinode` prints "All done." once it's ready.
+
+**Calls.** For the server to accept calls, give it ICE servers. Mount a JSON list of
+`{"urls": [...], "username": ..., "credential": ...}` entries and set
+`ICE_SERVERS_FILE` to its path. The server exits on startup if that file is missing or
+invalid. Without it, the call tests fail.
+
+**Email.** The `smtp` tests (email validation, password reset) also need the server to
+send mail to [Mailpit](https://mailpit.axllent.org/), with its API on `localhost:8025`.
+Add the following to the compose file:
+
+```yaml
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    ports:
+      - "8025:8025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+```
+
+Then add these to the `tinode` service's `environment`:
+
+```yaml
+      SMTP_SERVER: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SENDER: noreply@example.com
+      SMTP_LOGIN: tinode
+      SMTP_PASSWORD: tinode
+      # Go's PLAIN auth refuses a connection without TLS; LOGIN doesn't.
+      SMTP_AUTH_MECHANISM: login
+```
+
+```sh
+dart test -P smtp
+```
+
+With SMTP set, the server makes an email required at sign-up. Sign-ups that give only a
+login then fail, so run `-P integration` against a server without SMTP.
 
 ## License
 

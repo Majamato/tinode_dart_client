@@ -41,17 +41,31 @@ final class Hi extends ClientMessage {
   Json body() => {'ver': ver, 'ua': ua, 'lang': ?lang};
 }
 
+/// [codes] confirm credentials, by method, e.g. `{'email': '123456'}`.
 final class Login extends ClientMessage {
-  const Login({required this.scheme, required this.secret});
+  const Login({
+    required this.scheme,
+    required this.secret,
+    this.codes = const {},
+  });
 
   final String scheme;
   final String secret;
+  final Map<String, String> codes;
 
   @override
   String get type => 'login';
 
   @override
-  Json body() => {'scheme': scheme, 'secret': secret};
+  Json body() => {
+    'scheme': scheme,
+    'secret': secret,
+    if (codes.isNotEmpty)
+      'cred': [
+        for (final MapEntry(:key, :value) in codes.entries)
+          {'meth': key, 'resp': value},
+      ],
+  };
 }
 
 /// [init] sets up a topic that the `sub` creates (`new…`, `nch…`);
@@ -178,14 +192,41 @@ final class SetMeta extends ClientMessage {
   Json? extra() => _attachments(attachments);
 }
 
-/// Deletes the messages in [ranges]; [hard] deletes them for everyone,
-/// otherwise only for this user.
+/// Deletes one kind of thing; `what` names it.
 final class Del extends ClientMessage {
-  const Del(this.topic, this.ranges, {required this.hard});
+  const Del._(
+    this.topic,
+    this.what, {
+    this.hard = false,
+    this.fields = const {},
+  });
+
+  /// The messages in [ranges]; [hard] deletes them for everyone, otherwise
+  /// only for this user.
+  Del.messages(String topic, List<SeqRange> ranges, {required bool hard})
+    : this._(
+        topic,
+        'msg',
+        hard: hard,
+        fields: {
+          'delseq': [for (final r in ranges) r.toJson()],
+        },
+      );
+
+  /// The whole topic, with its messages and subscriptions.
+  const Del.topic(String topic) : this._(topic, 'topic', hard: true);
+
+  /// Another member's subscription to [topic].
+  Del.subscription(String topic, String userId)
+    : this._(topic, 'sub', fields: {'user': userId});
+
+  /// The logged-in user's account.
+  const Del.user() : this._('me', 'user', hard: true);
 
   final String topic;
-  final List<SeqRange> ranges;
+  final String what;
   final bool hard;
+  final Json fields;
 
   @override
   String get type => 'del';
@@ -193,9 +234,58 @@ final class Del extends ClientMessage {
   @override
   Json body() => {
     'topic': topic,
-    'what': 'msg',
-    'delseq': [for (final r in ranges) r.toJson()],
+    'what': what,
+    ...fields,
     if (hard) 'hard': true,
+  };
+}
+
+/// Creates an account or changes the logged-in user's login and password.
+/// [user] is `new` to create one, null for the logged-in user. A
+/// [tmpScheme] and [tmpSecret] authorise one request on a session that
+/// isn't logged in, e.g. with a password reset code. [credentials] are
+/// the new account's to confirm, by method, e.g. `{'email': 'a@b.c'}`.
+final class Acc extends ClientMessage {
+  const Acc({
+    required this.scheme,
+    required this.secret,
+    this.user,
+    this.login = false,
+    this.tags,
+    this.desc,
+    this.tmpScheme,
+    this.tmpSecret,
+    this.credentials = const {},
+  });
+
+  final String scheme;
+  final String secret;
+  final String? user;
+  final bool login;
+  final List<String>? tags;
+  final Json? desc;
+  final String? tmpScheme;
+  final String? tmpSecret;
+  final Map<String, String> credentials;
+
+  @override
+  String get type => 'acc';
+
+  @override
+  Json body() => {
+    'user': ?user,
+    'scheme': scheme,
+    'secret': secret,
+    if (login) 'login': true,
+    'tags': ?tags,
+    'desc': ?desc,
+    'tmpscheme': ?tmpScheme,
+    'tmpsecret': ?tmpSecret,
+    if (credentials.isNotEmpty)
+      'cred': [
+        for (final MapEntry(:key, :value) in credentials.entries)
+          {'meth': key, 'val': value},
+      ],
   };
 }
 

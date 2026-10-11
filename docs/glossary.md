@@ -89,7 +89,7 @@ One JSON object sent over the socket. It has a single top-level key that names i
 | Packet | Purpose |
 |--------|---------|
 | `hi` | Handshake. Must be the first packet; it reports the client version and user agent. |
-| `acc` | Creates an account or changes credentials. |
+| `acc` | Creates an account, or changes the login and password. |
 | `login` | Authenticates the session. |
 | `sub` | Attaches to a topic. Creates the topic or the subscription if needed. |
 | `leave` | Detaches from a topic, and with `unsub` also unsubscribes. |
@@ -129,13 +129,19 @@ Common ones:
 | 201 | created (e.g. reply to `hi`) |
 | 202 | accepted (reply to `pub`) |
 | 204 | no content |
+| 205 | evicted: the server detached a topic on its own (sent without `id`) |
 | 208 | delivered (closes a `get data` reply) |
-| 300 | more credentials needed |
+| 300 | credentials to confirm (`params.cred`) |
+| 301 | password reset started (reply to `login` with `reset`) |
+| 304 | not modified, or nothing to do |
 | 400 | malformed request |
 | 401 | authentication failed |
-| 409 | already authenticated |
+| 409 | already authenticated; a login that is taken; a topic to attach first |
+| 422 | policy violation, e.g. a login or password too short |
 
-*In this package:* codes ≥ 300 become `ServerException`.
+*In this package:* codes ≥ 300 become `ServerException`, except where a method documents one as
+success (304 on `deleteSubscription`, 301 on `requestPasswordReset`), and 300 on a login or a
+sign-up, which is `CredentialsRequiredException`.
 
 **Echo**
 The copy of your own message that the server sends back to every session attached to the topic,
@@ -415,6 +421,63 @@ member's access needs `A`. Without `mode` the member gets the group's `defacs`. 
 
 ---
 
+## Accounts
+
+**Account**
+A user as seen by themselves: a **login** and password (the `basic` scheme), a profile in `me`'s
+`public`, and the chats they take part in.
+
+**Login** (login name)
+The name a user logs in with, unique on the server. It is not the user ID: it can change, and
+others find the user by it through the tag `basic:<login>`, which the server keeps in step.
+The server's rules refuse a login or password that is too short (422).
+*Avoid:* "username" in code; this package says "login".
+
+**Sign up**
+`acc` with `user: "new"`, the `basic` secret, the first `desc` and `tags`, and `login: true` so the
+session is logged in as the new user at once; the reply carries the token, as a `login` reply does.
+A taken login is 409. A session already logged in can't sign up (409). With `cred` the account
+gets an email (or phone) to confirm; a server that requires one refuses an account without it
+(422). See **Credential**.
+*In this package:* `TinodeClient.createAccount`, with `email`.
+
+**Changing the password or login**
+`acc` without `user` on a logged-in session, `secret` being `base64("<login>:<password>")`: an empty
+login keeps the current one, a password is always needed. Tokens already handed out stay valid.
+*In this package:* `TinodeClient.changePassword(password, login:)`.
+
+**Password reset**
+For a user who forgot their password, from a session that isn't logged in:
+1. `login` with scheme `reset` and secret `base64("basic:email:<address>")`. The server answers 301
+   whether or not the address belongs to anyone, and emails its owner a **reset code**. While an
+   earlier code for the address is valid (15 minutes by default) it sends none and answers 409.
+2. `acc` with the new `basic` secret (empty login), `tmpscheme: "code"` and `tmpsecret:
+   base64("<code>:email:<address>")`. A wrong code is 401. It doesn't log in.
+
+*In this package:* `requestPasswordReset` and `resetPassword`.
+
+**Deleting a chat** (`del what=topic`)
+Works whether or not the topic is attached, and means different things by role:
+- the owner of a group or channel deletes it for everyone, who get `pres gone` on `me`;
+- any other member only drops their subscription, as `leave` with `unsub` does;
+- in a P2P chat, the user drops their side; the peer keeps theirs.
+
+*In this package:* `TinodeClient.deleteTopic`, which always sends `hard`.
+
+**Removing a member** (`del what=sub`)
+Deletes another user's subscription to a group. It needs `A` and the topic attached (else 409);
+removing someone who isn't a member is 304. The removed member's sessions get a `ctrl` 205
+"evicted" for the topic and `pres gone` on `me`. Removing yourself is `leave` with `unsub`.
+*In this package:* `TinodeClient.deleteSubscription(topic, userId:)`; the client stops attaching an
+evicted topic after a reconnect.
+
+**Deleting an account** (`del what=user`)
+Deletes the logged-in user, their subscriptions and the topics they own. The server evicts all their
+sessions (`ctrl` 205 without a topic), answers, then drops the sockets; logging in again is 401.
+*In this package:* `TinodeClient.deleteAccount`, which then closes the client.
+
+---
+
 ## Authentication
 
 **API key**
@@ -432,6 +495,7 @@ How a login is checked:
 | `anonymous` | temporary users |
 | `rest` | delegated to an external service |
 | `reset` | starts password recovery |
+| `code` | a short code sent by email, for one request (`tmpscheme` in `acc`) |
 
 **Token**
 Returned by a successful login together with `expires`. Use it with the `token` scheme until it
@@ -443,8 +507,16 @@ is in `Connected.login`.
 The authentication level the session reached: `auth`, `anon` or `root`.
 
 **Credential** (`cred`)
-A contact method (`email`, `tel`) that the server may require to be validated. Validation happens
-by sending back a code (`resp`) in `login` or `acc`. Until then, login answers with code 300.
+A contact method (`email`, `tel`) that the server may require to be validated. The `hi` reply
+lists the required ones in `reqCred.auth`; the official image requires `email` as soon as it has
+an SMTP server. A new account gives its credentials in `acc` (`cred: [{meth, val}]`) and the
+server mails a code. Until the code comes back in a `login` (`cred: [{meth, resp}]`), every login
+answers 300 with `params.cred` naming what to confirm, and a token that can't do anything yet; a
+wrong code is 300 again. The email becomes a tag (`email:…`), and is unique: a taken one is 409
+without `what: auth`, one that isn't an email 400 with `what: email`.
+*In this package:* `CredentialsRequiredException` (`methods`), `codes` on `loginBasic` and
+`loginToken`, `ServerInfo.requiredCredentials`. A reconnect that gets 300 ends in
+`Disconnected`.
 
 ---
 

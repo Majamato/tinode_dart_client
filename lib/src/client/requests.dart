@@ -8,6 +8,9 @@ import 'package:tinode_dart_client/src/protocol/server/server_message.dart';
 /// Protocol version sent in `hi`.
 const wireVersion = '0.25';
 
+/// The code of a reply that wants credentials confirmed.
+const credentialsCode = 300;
+
 /// How often [Requests.attach] tries a topic the server reports as locked.
 const attachAttempts = 4;
 
@@ -32,10 +35,29 @@ extension Requests on Connection {
     return ServerInfo.fromParams((await ctrl(hi)).params);
   }
 
-  Future<LoginResult> login(String scheme, String secret) async =>
-      LoginResult.fromParams(
-        (await ctrl(Login(scheme: scheme, secret: secret))).params,
-      );
+  /// Code 300, credentials to confirm, throws
+  /// [CredentialsRequiredException].
+  Future<LoginResult> login(
+    String scheme,
+    String secret, {
+    Map<String, String> codes = const {},
+  }) async => LoginResult.fromParams(
+    (await ctrlOrCredentials(
+      Login(scheme: scheme, secret: secret, codes: codes),
+    )).params,
+  );
+
+  /// Like [ctrl], with code 300 as [CredentialsRequiredException].
+  Future<CtrlMessage> ctrlOrCredentials(ClientMessage message) async {
+    try {
+      return await ctrl(message);
+    } on ServerException catch (e) {
+      if (e.code != credentialsCode) rethrow;
+      throw CredentialsRequiredException([
+        ...?(e.params['cred'] as List<Object?>?)?.whereType<String>(),
+      ], userId: e.params['user'] as String?);
+    }
+  }
 
   /// Returns the topic's real name. Retries `503 locked`, which the server
   /// sends while it loads the topic, e.g. when both sides of a P2P chat

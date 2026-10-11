@@ -1,3 +1,33 @@
+## 0.8.0
+
+Account and profile.
+
+- `TinodeClient.createAccount` signs up with a login and password (`acc`) and
+  logs the session in as the new user; reconnects log in with its token. 409
+  means the login is taken, 422 that the server's rules refuse it.
+- `createAccount(email:)` gives the account an email to confirm. Servers that
+  send mail usually require one (`ServerInfo.requiredCredentials`, from the
+  `hi` reply's `reqCred`); the server mails a code, and `loginBasic` and
+  `loginToken` send it back with `codes: {'email': code}`.
+- **Breaking:** code 300 on a login or a sign-up (credentials to confirm)
+  throws `CredentialsRequiredException` (`methods`, `userId`) instead of
+  `ServerException`. A reconnect that gets it ends in `Disconnected`
+  instead of retrying.
+- `changePassword(password, login:)` changes the password, and the login.
+- `requestPasswordReset(email)` and `resetPassword(email:, code:, password:)`:
+  the server emails a code, sent back as a one-off `code` login
+  (`tmpscheme`). Asking again while a code is valid is 409.
+- `deleteTopic` deletes a chat (`del what=topic`): for everyone when the
+  owner deletes a group, otherwise only for this user. The topic is no longer
+  attached after a reconnect.
+- `deleteSubscription(topic, userId:)` removes a member (`del what=sub`); one
+  who isn't a member counts as removed.
+- `deleteAccount` deletes the user (`del what=user`) and closes the client.
+- A topic the server evicts this user from (`ctrl` 205) is no longer attached
+  after a reconnect.
+- `Profile.copyWith` edits a profile read from the server without losing its
+  other theCard fields (`raw` wins in `toJson`).
+
 ## 0.7.0
 
 Attachments.

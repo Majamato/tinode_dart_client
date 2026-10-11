@@ -4,7 +4,8 @@ library;
 import 'package:test/test.dart';
 import 'package:tinode_dart_client/tinode_dart_client.dart';
 
-// Runs against ../tinode-tests (sample users alice, bob, carol and dave).
+// Runs against a Tinode server with the sample data (users alice, bob, carol
+// and dave).
 // Each test creates its own group.
 final config = TinodeConfig(
   server: Uri.parse('ws://localhost:6060'),

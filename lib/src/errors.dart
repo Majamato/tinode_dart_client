@@ -16,6 +16,23 @@ final class ServerException extends TinodeException {
   String toString() => 'ServerException($code $text)';
 }
 
+/// The server knows the user but wants credentials confirmed first, e.g.
+/// the email given at sign-up (code 300): log in again with the codes it
+/// sent, as `loginBasic(login, password, codes: {'email': code})`. The
+/// session is not logged in meanwhile.
+final class CredentialsRequiredException extends TinodeException {
+  const CredentialsRequiredException(this.methods, {this.userId});
+
+  /// The credential methods to confirm, e.g. `email`.
+  final List<String> methods;
+
+  /// The user, when the server names them.
+  final String? userId;
+
+  @override
+  String toString() => 'CredentialsRequiredException($methods)';
+}
+
 /// The connection ended while a request was waiting for its reply.
 final class ConnectionClosedException extends TinodeException {
   const ConnectionClosedException([this.reason = '']);

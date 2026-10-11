@@ -1,9 +1,13 @@
-# Integration tests need a running Tinode server; run them with
-# `dart test -P integration` (see ../tinode-tests for a local one).
+# Integration tests need a Tinode server at ws://localhost:6060 loaded with
+# Tinode's sample data; run them with `dart test -P integration`. The smtp
+# ones also need the server to require an email at sign-up and deliver it to
+# Mailpit at localhost:8025; run them with `dart test -P smtp`.
 tags:
   integration:
     skip: Needs a Tinode server, run with -P integration.
     timeout: 30s
+  smtp:
+    skip: Needs a Tinode server that mails to Mailpit, run with -P smtp.
 
 presets:
   integration:
@@ -12,4 +16,11 @@ presets:
     concurrency: 1
     tags:
       integration:
+        skip: false
+  smtp:
+    include_tags: smtp
+    tags:
+      integration:
+        skip: false
+      smtp:
         skip: false

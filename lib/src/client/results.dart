@@ -10,12 +10,17 @@ final class ServerInfo with ValueObject {
     this.maxFileUploadSize,
     this.iceServers = const [],
     this.callTimeout,
+    this.requiredCredentials = const [],
     this.raw = const {},
   });
 
   factory ServerInfo.fromParams(Json params) {
     final j = LooseJson(params);
     final callTimeout = j.get<int>('callTimeout');
+    final requiredCredentials = switch (params['reqCred']) {
+      {'auth': final List<Object?> methods} => methods.whereType<String>(),
+      _ => const <String>[],
+    };
     return ServerInfo(
       version: j.get('ver') ?? '',
       build: j.get('build'),
@@ -26,6 +31,7 @@ final class ServerInfo with ValueObject {
           if (item case final Json server) ?IceServer._tryParse(server),
       ],
       callTimeout: callTimeout == null ? null : Duration(seconds: callTimeout),
+      requiredCredentials: requiredCredentials.toList(),
       raw: params,
     );
   }
@@ -45,6 +51,10 @@ final class ServerInfo with ValueObject {
   /// How long the server lets a call ring before ending it as missed.
   final Duration? callTimeout;
 
+  /// The credentials a new account must have and confirm before it can
+  /// log in, e.g. `email` (`reqCred.auth`); see `createAccount`.
+  final List<String> requiredCredentials;
+
   /// All params, including limits not typed here.
   final Json raw;
 
@@ -59,6 +69,7 @@ final class ServerInfo with ValueObject {
     maxFileUploadSize,
     iceServers,
     callTimeout,
+    requiredCredentials,
     raw,
   ];
 }

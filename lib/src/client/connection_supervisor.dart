@@ -10,6 +10,9 @@ import 'package:tinode_dart_client/src/errors.dart';
 import 'package:tinode_dart_client/src/protocol/server/server_message.dart';
 import 'package:web_socket/web_socket.dart';
 
+/// The code of an unsolicited `ctrl` saying the server detached a topic.
+const _evicted = 205;
+
 /// Opens the WebSocket to the server's channels URI.
 typedef SocketConnector = Future<WebSocket> Function(Uri uri);
 
@@ -130,8 +133,17 @@ final class ConnectionSupervisor {
 
   void _adopt(Connection connection, ServerInfo info) {
     _serverInfo = info;
-    _pipe = connection.events.listen(_events.add, onError: _events.addError);
+    _pipe = connection.events.listen(_onEvent, onError: _events.addError);
     unawaited(connection.done.then((cause) => _onDrop(connection, cause)));
+  }
+
+  void _onEvent(ServerMessage message) {
+    // 205 evicted: the server detached a topic, e.g. after removing this
+    // user from a group, so there is nothing to attach after a drop.
+    if (message case CtrlMessage(code: _evicted, :final topic?)) {
+      attached.remove(topic);
+    }
+    _events.add(message);
   }
 
   void _onDrop(Connection connection, TinodeException cause) {
@@ -182,8 +194,10 @@ final class ConnectionSupervisor {
       _setStatus(Connected(login: login, lostTopics: lost));
     } on TinodeException catch (e) {
       if (epoch != _epoch) return;
-      // 4xx: the server refuses this session; 505: this protocol version.
-      if (e is ServerException && (e.code < 500 || e.code == 505)) {
+      // 4xx: the server refuses this session; 505: this protocol version;
+      // credentials to confirm need the user.
+      if (e is ServerException && (e.code < 500 || e.code == 505) ||
+          e is CredentialsRequiredException) {
         return _shutDown(e);
       }
       await _stop();

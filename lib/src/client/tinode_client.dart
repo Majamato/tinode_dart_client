@@ -23,8 +23,12 @@ import 'package:tinode_dart_client/src/protocol/client/client_message.dart';
 import 'package:tinode_dart_client/src/protocol/server/server_message.dart';
 import 'package:web_socket/web_socket.dart';
 
-/// The code of a `get` whose `ims` found nothing changed.
+/// The code of a request that changed nothing, e.g. a `get` whose `ims`
+/// found nothing new.
 const _notModified = 304;
+
+/// The code of a password reset request the server took.
+const _resetStarted = 301;
 
 /// A connection to a Tinode server that outlives dropped sockets: see
 /// [status]. There is no logout: [close] it and connect again to switch
@@ -112,12 +116,115 @@ final class TinodeClient {
   /// steps of calls.
   Stream<InfoMessage> get info => _only<InfoMessage>();
 
-  /// Throws [ServerException] on bad credentials, and also on code 300
-  /// when the server asks for credential validation.
-  Future<LoginResult> loginBasic(String user, String password) =>
-      _login('basic', base64.encode(utf8.encode('$user:$password')));
+  /// Throws [ServerException] on bad credentials, and
+  /// [CredentialsRequiredException] while the user has credentials to
+  /// confirm, e.g. the email given at sign-up: log in again with the
+  /// [codes] the server sent, by method (`{'email': '123456'}`). A wrong
+  /// code throws [CredentialsRequiredException] again.
+  Future<LoginResult> loginBasic(
+    String user,
+    String password, {
+    Map<String, String> codes = const {},
+  }) => _login('basic', _base64('$user:$password'), codes: codes);
 
-  Future<LoginResult> loginToken(String token) => _login('token', token);
+  /// Like [loginBasic], with a token from an earlier login.
+  Future<LoginResult> loginToken(
+    String token, {
+    Map<String, String> codes = const {},
+  }) => _login('token', token, codes: codes);
+
+  /// Creates an account with a login name and password and logs this
+  /// session in as the new user, like [loginBasic]: keep the result's
+  /// token. [public] is the profile others see; the server adds the login
+  /// to [tags] itself (`basic:<login>`), so [find] reaches the user by it,
+  /// and the [email] too. A photo given by ref needs a login to upload:
+  /// set it afterwards with [setDescription] on `me`.
+  ///
+  /// A server that requires an email ([ServerInfo.requiredCredentials])
+  /// refuses an account without one (422). With one, it creates the
+  /// account and emails a code, and this throws
+  /// [CredentialsRequiredException]: log in with `loginBasic(login,
+  /// password, codes: {'email': code})` to finish.
+  ///
+  /// Throws [ServerException] 409 when the login (`params['what']` is
+  /// `auth`) or the email is taken, 400 for an email that isn't one, and
+  /// 422 when the server's rules refuse the login or password (e.g. too
+  /// short).
+  Future<LoginResult> createAccount({
+    required String login,
+    required String password,
+    Profile? public,
+    String? email,
+    List<String> tags = const [],
+  }) async {
+    final reply = await _supervisor.connection.ctrlOrCredentials(
+      Acc(
+        user: 'new',
+        scheme: 'basic',
+        secret: _basicSecret(login, password),
+        login: true,
+        tags: tags.isEmpty ? null : tags,
+        desc: _desc(public: public),
+        credentials: {'email': ?email},
+      ),
+    );
+    return _loggedIn(LoginResult.fromParams(reply.params));
+  }
+
+  /// Changes the logged-in user's password, and with [login] also their
+  /// login name. Tokens already handed out stay valid. Throws
+  /// [ServerException] 409 when the new login is taken, and 422 when the
+  /// server's rules refuse it or the password.
+  Future<void> changePassword(String password, {String? login}) async {
+    await _supervisor.connection.ctrl(
+      Acc(scheme: 'basic', secret: _basicSecret(login ?? '', password)),
+    );
+  }
+
+  /// Asks the server to email a password reset code to [email], which must
+  /// be one of the account's credentials. Needs no login. The server
+  /// answers the same whether or not the email belongs to anyone.
+  ///
+  /// While an earlier code for the address is still valid (15 minutes on a
+  /// default server) the server sends no new one and throws
+  /// [ServerException] 409: the earlier code still works.
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      await _supervisor.connection.ctrl(
+        Login(scheme: 'reset', secret: _base64('basic:email:$email')),
+      );
+    } on ServerException catch (e) {
+      // 301: the reset was started.
+      if (e.code != _resetStarted) rethrow;
+    }
+  }
+
+  /// Sets a new [password] with the [code] that [requestPasswordReset]
+  /// sent to [email]. It doesn't log in: call [loginBasic] next. A wrong
+  /// or expired code throws [ServerException] 401.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String password,
+  }) async {
+    await _supervisor.connection.ctrl(
+      Acc(
+        scheme: 'basic',
+        secret: _basicSecret('', password),
+        tmpScheme: 'code',
+        tmpSecret: _base64('$code:email:$email'),
+      ),
+    );
+  }
+
+  /// Deletes the logged-in user's account, with their chats and messages,
+  /// and closes the client: the server ends all the user's sessions. The
+  /// status ends in [Disconnected] as after [close].
+  Future<void> deleteAccount() async {
+    await _supervisor.connection.ctrl(const Del.user());
+    _userId = null;
+    await close();
+  }
 
   /// Returns the topic's real name, which differs for `new…` topics.
   /// The topic is attached again after a reconnect.
@@ -285,6 +392,32 @@ final class TinodeClient {
   Future<void> setTags(String topic, List<String> tags) =>
       _set(topic, TopicChanges(tags: tags));
 
+  /// Removes [userId] from the group [topic], which needs the `A`
+  /// permission and the topic attached. The member gets `pres gone` on
+  /// `me`. Removing someone who isn't a member succeeds. To remove
+  /// yourself, [leave] with `unsubscribe`.
+  Future<void> deleteSubscription(
+    String topic, {
+    required String userId,
+  }) async {
+    try {
+      await _supervisor.connection.ctrl(Del.subscription(topic, userId));
+    } on ServerException catch (e) {
+      // 304: not a member, so nothing to remove.
+      if (e.code != _notModified) rethrow;
+    }
+  }
+
+  /// Deletes the chat for this user, whether or not it is attached. For
+  /// the owner of a group or channel that deletes it for everyone, who get
+  /// `pres gone` on `me`; for anyone else it drops their subscription, as
+  /// `leave(topic, unsubscribe: true)` does. In a 1:1 chat the peer keeps
+  /// their side.
+  Future<void> deleteTopic(String topic) async {
+    await _supervisor.connection.ctrl(Del.topic(topic));
+    _supervisor.attached.remove(topic);
+  }
+
   /// With [noEcho] the sender's own sessions get no `data` copy. [head]
   /// adds headers; keys of your own start with `x-<app>-`.
   ///
@@ -321,7 +454,7 @@ final class TinodeClient {
       throw ArgumentError.value(ranges, 'ranges', 'must not be empty');
     }
     final reply = await _supervisor.connection.ctrl(
-      Del(topic, ranges, hard: hard),
+      Del.messages(topic, ranges, hard: hard),
     );
     return StrictJson(reply.params).require('del', 'ctrl.params');
   }
@@ -483,12 +616,32 @@ final class TinodeClient {
     return desc.isEmpty ? null : desc;
   }
 
-  Future<LoginResult> _login(String scheme, String secret) async {
-    final result = await _supervisor.connection.login(scheme, secret);
+  Future<LoginResult> _login(
+    String scheme,
+    String secret, {
+    Map<String, String> codes = const {},
+  }) async => _loggedIn(
+    await _supervisor.connection.login(scheme, secret, codes: codes),
+  );
+
+  LoginResult _loggedIn(LoginResult result) {
     _supervisor.token = result.token;
     _userId = result.userId;
     return result;
   }
+
+  /// The `basic` secret; an empty [login] keeps the current one.
+  static String _basicSecret(String login, String password) {
+    if (login.contains(':')) {
+      throw ArgumentError.value(login, 'login', 'must not contain ":"');
+    }
+    if (password.isEmpty) {
+      throw ArgumentError.value(password, 'password', 'must not be empty');
+    }
+    return _base64('$login:$password');
+  }
+
+  static String _base64(String text) => base64.encode(utf8.encode(text));
 
   Future<PublishResult> _publish(Pub pub) async {
     final reply = await _supervisor.connection.ctrl(pub);
