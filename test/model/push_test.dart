@@ -34,6 +34,7 @@ void main() {
       expect(push.preview?.spans, hasLength(1));
       expect(push.callState, isNull);
       expect(push.replaces, ':40');
+      expect(push.replacesSeq, 40);
       expect(push.raw, data);
       expect(TinodePush.tryParse(push.toJson()), push);
     });
@@ -52,6 +53,22 @@ void main() {
       expect(push.callState, CallState.started);
       expect(push.audioOnly, isTrue);
       expect(push.silent, isTrue);
+      expect(push.replacesSeq, isNull);
+    });
+
+    test("a call's later state names the call it replaces", () {
+      final push =
+          TinodePush.tryParse({
+                'what': 'msg',
+                'topic': 'usrBob',
+                'seq': '8',
+                'webrtc': 'missed',
+                'replace': ':7',
+                'silent': 'true',
+              })!
+              as MessagePush;
+      expect(push.callState, CallState.missed);
+      expect(push.replacesSeq, 7);
     });
 
     test('a new subscription', () {

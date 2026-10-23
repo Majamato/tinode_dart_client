@@ -127,6 +127,13 @@ final class MessagePush extends TinodePush {
   /// `:<seq>` of the message this one edits.
   final String? replaces;
 
+  /// The seq in [replaces]: for a call, the call message whose state this
+  /// push reports.
+  int? get replacesSeq => switch (replaces) {
+    final r? when r.startsWith(':') => int.tryParse(r.substring(1)),
+    _ => null,
+  };
+
   @override
   List<Object?> get props => [
     topic,

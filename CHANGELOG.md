@@ -1,3 +1,8 @@
+## Unreleased
+
+- `MessagePush.replacesSeq`: the seq a push's `replace` names, e.g. the call
+  whose later state (`accepted`, `missed`, …) the push reports.
+
 ## 0.9.0
 
 Push notifications.

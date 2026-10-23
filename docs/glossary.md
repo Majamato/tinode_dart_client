@@ -739,6 +739,8 @@ What a push carries, as strings: `what` (`msg` a new message, `sub` added to a c
 elsewhere), `topic` (as the recipient names it: the peer's user ID for a 1:1 chat), `xfrom`,
 `ts`, `seq`, and for a message `mime`, `content` (plain text cut to 128 characters), `rc` (a
 Drafty preview), `webrtc` and `aonly` for calls, `replace` for edits. `silent: true` means
-nothing to show: the user saw it already, or it only updates state.
+nothing to show: the user saw it already, or it only updates state. Call pushes are always
+`silent`, the one that rings (`webrtc: started`) too; each later call state comes as its own push
+that replaces the call message (`replace: ":<seq>"`).
 *In this package:* `TinodePush.tryParse`, giving `MessagePush`, `SubscriptionPush` or
 `ReadPush`.
