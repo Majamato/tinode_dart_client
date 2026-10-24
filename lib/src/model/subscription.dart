@@ -32,8 +32,10 @@ final class Subscription with ValueObject {
       updated: r.optionalTime('updated', path),
       deleted: r.optionalTime('deleted', path),
       lastMessageAt: r.optionalTime('touched', path),
+      // An empty `acs` is "unchanged": a `get sub` with `ims` sends one in
+      // the stub of each unchanged chat that is online.
       access: switch (r.optionalObject('acs', path)) {
-        null => null,
+        null || Map(isEmpty: true) => null,
         final a => Access.fromJson(a, '$path.acs'),
       },
       online: r.optional('online', path) ?? false,

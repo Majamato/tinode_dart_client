@@ -88,6 +88,16 @@ void main() {
       expect(Subscription.fromJson(member.toJson(), 'sub'), member);
     });
 
+    test('an empty acs is no access, as in the online stub of an ims sync', () {
+      final stub = Subscription.fromJson(const {
+        'topic': 'usrB',
+        'online': true,
+        'acs': <String, Object?>{},
+      }, 'sub');
+      expect(stub.access, isNull);
+      expect(stub.online, isTrue);
+    });
+
     test('a search result', () {
       final found = FoundTopic.fromJson(const {
         'topic': 'grpX',

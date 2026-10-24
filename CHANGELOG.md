@@ -1,5 +1,8 @@
 ## Unreleased
 
+- An empty `acs` in a subscription parses as no `access`, not as `N`: a `get sub`
+  with `ims` sends `{topic, online: true, acs: {}}` for each unchanged chat that is online,
+  which a merge would otherwise take as "no permissions".
 - `MessagePush.replacesSeq`: the seq a push's `replace` names, e.g. the call
   whose later state (`accepted`, `missed`, …) the push reports.
 
