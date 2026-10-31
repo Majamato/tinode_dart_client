@@ -52,6 +52,14 @@ final class Drafty with ValueObject {
     entities: [Entity(type: Entity.imageType, data: image.toData())],
   );
 
+  /// A voice message, as tinode-js's `insertAudio` writes it: one space
+  /// marked as an `AU` entity.
+  factory Drafty.audio(DraftyAudio audio) => Drafty(
+    text: ' ',
+    spans: const [Span(at: 0, length: 1, entityIndex: 0)],
+    entities: [Entity(type: Entity.audioType, data: audio.toData())],
+  );
+
   /// A file attached below an optional [caption], shown as a download
   /// rather than inline: its span sits at `-1`.
   factory Drafty.file(DraftyFile file, {String caption = ''}) => Drafty(
@@ -192,7 +200,7 @@ final class Entity with ValueObject {
   /// `EX`: a file, see [DraftyFile].
   static const fileType = 'EX';
 
-  /// `AU`: an audio recording, read as a [DraftyFile].
+  /// `AU`: an audio recording, see [DraftyAudio].
   static const audioType = 'AU';
 
   /// `VD`: a video, read as a [DraftyFile].
@@ -213,10 +221,12 @@ final class Entity with ValueObject {
       type == imageType ? DraftyImage.fromData(data) : null;
 
   /// The file this entity is (`EX`, `AU` or `VD`), or null for other types.
-  DraftyFile? get asFile =>
-      type == fileType || type == audioType || type == videoType
-      ? DraftyFile.fromData(data)
-      : null;
+  /// An `AU` entity is a [DraftyAudio].
+  DraftyFile? get asFile => switch (type) {
+    audioType => DraftyAudio.fromData(data),
+    fileType || videoType => DraftyFile.fromData(data),
+    _ => null,
+  };
 
   static Entity? _tryParse(Json json) {
     final j = LooseJson(json);
@@ -290,6 +300,72 @@ class DraftyFile with ValueObject {
 
   @override
   List<Object?> get props => [mimeType, name, size, ref, inlineData];
+}
+
+/// A recording in a Drafty document (`AU`): a [DraftyFile] with its
+/// [duration] and a [preview] of its loudness.
+final class DraftyAudio extends DraftyFile {
+  const DraftyAudio({
+    super.mimeType,
+    super.name,
+    super.size,
+    super.ref,
+    super.inlineData,
+    this.duration,
+    this.preview,
+  });
+
+  factory DraftyAudio.fromData(Json data) {
+    final file = DraftyFile.fromData(data);
+    final j = LooseJson(data);
+    return DraftyAudio(
+      mimeType: file.mimeType,
+      name: file.name,
+      size: file.size,
+      ref: file.ref,
+      inlineData: file.inlineData,
+      duration: switch (j.get<num>('duration')) {
+        final ms? when ms >= 0 => Duration(milliseconds: ms.toInt()),
+        _ => null,
+      },
+      preview: _decodePreview(j.get('preview')),
+    );
+  }
+
+  /// How long it plays (`duration`, in milliseconds).
+  final Duration? duration;
+
+  /// The loudness along the recording, each byte 0 (silent) to 100 (the
+  /// loudest point), sent as base64 (`preview`). TinodeWeb and Tindroid
+  /// send 96 of them.
+  final Uint8List? preview;
+
+  static Uint8List? _decodePreview(String? data) {
+    if (data == null || data.isEmpty) return null;
+    try {
+      return base64.decode(base64.normalize(data));
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  Json toData() => {
+    ...super.toData(),
+    'duration': ?duration?.inMilliseconds,
+    if (preview case final preview?) 'preview': base64.encode(preview),
+  };
+
+  @override
+  List<Object?> get props => [
+    mimeType,
+    name,
+    size,
+    ref,
+    inlineData,
+    duration,
+    preview,
+  ];
 }
 
 /// An image in a Drafty document: a [DraftyFile] with its size in pixels.

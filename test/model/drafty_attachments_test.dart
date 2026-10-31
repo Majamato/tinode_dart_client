@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:test/test.dart';
 import 'package:tinode_dart_client/tinode_dart_client.dart';
@@ -59,6 +60,26 @@ void main() {
       expect(drafty.caption, 'the report');
     });
 
+    test('a voice message, as tinode-js writes it', () {
+      final drafty = parse('''
+        {"txt": " ", "fmt": [{"at": 0, "len": 1, "key": 0}],
+         "ent": [{"tp": "AU", "data": {"mime": "audio/mp4",
+           "ref": "/v0/file/s/v.m4a", "duration": 4200, "preview": "AGRk",
+           "name": "voice.m4a", "size": 9000}}]}''');
+
+      expect(drafty.files, [
+        DraftyAudio(
+          mimeType: 'audio/mp4',
+          ref: '/v0/file/s/v.m4a',
+          name: 'voice.m4a',
+          size: 9000,
+          duration: const Duration(milliseconds: 4200),
+          preview: Uint8List.fromList([0, 100, 100]),
+        ),
+      ]);
+      expect(drafty.caption, isEmpty);
+    });
+
     test('audio and video read as files', () {
       final drafty = parse('''
         {"txt": "", "fmt": [{"at": -1}, {"at": -1, "key": 1}],
@@ -97,6 +118,25 @@ void main() {
          "ent": [{"tp": "IM", "data": {}}]}''');
       expect(drafty.images, isEmpty);
       expect(drafty.caption, ' '.trim());
+    });
+
+    test('a voice message with wrong types keeps what it can', () {
+      final drafty = parse('''
+        {"txt": " ", "fmt": [{"len": 1}],
+         "ent": [{"tp": "AU", "data": {"mime": "audio/mp4", "ref": "v",
+           "duration": "long", "preview": "not base64!"}}]}''');
+
+      final audio = drafty.files.single as DraftyAudio;
+      expect(audio.ref, 'v');
+      expect(audio.duration, isNull);
+      expect(audio.preview, isNull);
+    });
+
+    test('a negative duration is unknown', () {
+      final audio =
+          const Entity(type: 'AU', data: {'duration': -5}).asFile!
+              as DraftyAudio;
+      expect(audio.duration, isNull);
     });
 
     test('other entities are neither images nor files', () {
@@ -157,8 +197,46 @@ void main() {
       });
     });
 
+    test('a voice message is a space marked as audio', () {
+      final audio = DraftyAudio(
+        mimeType: 'audio/mp4',
+        ref: '/v0/file/s/v.m4a',
+        name: 'voice.m4a',
+        size: 9000,
+        duration: const Duration(milliseconds: 4200),
+        preview: Uint8List.fromList([0, 100, 100]),
+      );
+      expect(Drafty.audio(audio).toJson(), {
+        'txt': ' ',
+        'fmt': [
+          {'len': 1},
+        ],
+        'ent': [
+          {
+            'tp': 'AU',
+            'data': {
+              'mime': 'audio/mp4',
+              'name': 'voice.m4a',
+              'size': 9000,
+              'ref': '/v0/file/s/v.m4a',
+              'duration': 4200,
+              'preview': 'AGRk',
+            },
+          },
+        ],
+      });
+      expect(Drafty.audio(audio).caption, isEmpty);
+    });
+
     test('round-trip through JSON', () {
       for (final drafty in [
+        Drafty.audio(
+          DraftyAudio(
+            ref: 'v',
+            duration: const Duration(seconds: 3),
+            preview: Uint8List.fromList([1, 50, 100]),
+          ),
+        ),
         Drafty.image(image),
         Drafty.image(image, caption: 'Look!'),
         Drafty.file(const DraftyFile(name: 'a', inlineData: 'AQID')),

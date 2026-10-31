@@ -1,5 +1,13 @@
-## Unreleased
+## 0.10.0
 
+Voice messages.
+
+- `DraftyAudio`: an `AU` entity (a voice message), a `DraftyFile` with its
+  `duration` and `preview` (the loudness along it, 0..100 per byte, as
+  TinodeWeb and Tindroid send it). `Entity.asFile` and `Drafty.files` return
+  one for `AU`.
+- `Drafty.audio(audio)` builds a voice message as tinode-js's `insertAudio`
+  does: one space marked as the `AU` entity.
 - An empty `acs` in a subscription parses as no `access`, not as `N`: a `get sub`
   with `ims` sends `{topic, online: true, acs: {}}` for each unchanged chat that is online,
   which a merge would otherwise take as "no permissions".
