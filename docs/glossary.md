@@ -213,8 +213,9 @@ A range `{at, len}` of the text. Either `tp` gives it an inline style (`ST` stro
 An object a span refers to, of type `tp`: `LN` link, `MN` mention, `HT` hashtag, `IM` image,
 `EX` attachment, `BN` button… Its `data` depends on the type.
 *In this package:* `Entity`, with `type` and `data`. `VC` marks a call message
-(`Entity.videoCallType`, `Drafty.videoCall`). `IM` is read through `Entity.asImage`, and `EX`,
-`AU` (audio) and `VD` (video) through `Entity.asFile`; see [Files](#files).
+(`Entity.videoCallType`, `Drafty.videoCall`). `IM` is read through `Entity.asImage`, and `EX` and
+`AU` (audio) through `Entity.asFile`, and `VD` (video) through `Entity.asVideo`; see
+[Files](#files).
 
 **History**
 Earlier messages, fetched with `get what=data` and the bounds `since` (inclusive), `before`
@@ -639,14 +640,15 @@ The payload of `ice-candidate`: `{candidate, sdpMid, sdpMLineIndex, usernameFrag
 ## Files
 
 **Attachment**
-An image or file in a message, as a Drafty entity: `IM` for an image shown inline (with `width`
-and `height`), `EX` for a file. Its `data` carries `mime`, `name` and `size`, and the file either
+An image, video or file in a message, as a Drafty entity: `IM` for an image shown inline (with
+`width` and `height`), `VD` for a video (with `width`, `height`, `duration` and a poster: inline as
+`preview` of type `premime`, or uploaded as `preref`), `EX` for a file. Its `data` carries `mime`, `name` and `size`, and the file either
 **in band**, as base64 in `val` (small files only: the whole message must fit
 `maxMessageSize`), or **out of band**, as a `ref` to an **upload**. A file shown as a download
 below the text, rather than at a place in it, has the span `{at: -1, len: 0}`.
-*In this package:* `DraftyImage` and `DraftyFile` (`ref`, `inlineData` and its decoded `bytes`),
-`Drafty.images`, `Drafty.files` and `Drafty.caption` for reading, `Drafty.image` and
-`Drafty.file` for sending.
+*In this package:* `DraftyImage`, `DraftyVideo` and `DraftyFile` (`ref`, `inlineData` and its
+decoded `bytes`), `Drafty.images`, `Drafty.videos`, `Drafty.files` and `Drafty.caption` for
+reading, `Drafty.image`, `Drafty.video` and `Drafty.file` for sending.
 
 **Upload**
 A file sent to the server over HTTP before the message that uses it: `POST /v0/file/u/` as

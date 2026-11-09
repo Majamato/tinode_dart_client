@@ -80,14 +80,51 @@ void main() {
       expect(drafty.caption, isEmpty);
     });
 
-    test('audio and video read as files', () {
+    test('audio reads as a file, video as a video', () {
       final drafty = parse('''
         {"txt": "", "fmt": [{"at": -1}, {"at": -1, "key": 1}],
          "ent": [{"tp": "AU", "data": {"mime": "audio/webm", "ref": "a"}},
                  {"tp": "VD", "data": {"mime": "video/mp4", "ref": "v"}}]}''');
 
-      expect(drafty.files.map((f) => f.ref), ['a', 'v']);
+      expect(drafty.files.map((f) => f.ref), ['a']);
+      expect(drafty.videos.map((f) => f.ref), ['v']);
       expect(drafty.images, isEmpty);
+    });
+
+    test('a video with a poster and a caption, as insertVideo writes it', () {
+      final drafty = parse('''
+        {"txt": "  Watch",
+         "fmt": [{"len": 1}, {"at": 1, "len": 1, "tp": "BR"}],
+         "ent": [{"tp": "VD", "data": {"mime": "video/mp4",
+           "ref": "/v0/file/s/v.mp4", "width": 1280, "height": 720,
+           "duration": 61500, "preview": "AQID", "premime": "image/jpeg",
+           "name": "clip.mp4", "size": 4000000}}]}''');
+
+      expect(drafty.videos, [
+        DraftyVideo(
+          mimeType: 'video/mp4',
+          ref: '/v0/file/s/v.mp4',
+          width: 1280,
+          height: 720,
+          duration: const Duration(milliseconds: 61500),
+          preview: Uint8List.fromList([1, 2, 3]),
+          previewMimeType: 'image/jpeg',
+          name: 'clip.mp4',
+          size: 4000000,
+        ),
+      ]);
+      expect(drafty.files, isEmpty);
+      expect(drafty.caption, 'Watch');
+      expect(drafty.fileRefs, ['/v0/file/s/v.mp4']);
+    });
+
+    test('a video poster uploaded apart is a file ref too', () {
+      final drafty = parse('''
+        {"txt": " ", "fmt": [{"len": 1}],
+         "ent": [{"tp": "VD", "data": {"ref": "v", "preref": "p"}}]}''');
+
+      expect(drafty.videos.single.previewRef, 'p');
+      expect(drafty.fileRefs, ['v', 'p']);
     });
 
     test('line breaks in a caption become newlines', () {
@@ -240,6 +277,17 @@ void main() {
         Drafty.image(image),
         Drafty.image(image, caption: 'Look!'),
         Drafty.file(const DraftyFile(name: 'a', inlineData: 'AQID')),
+        Drafty.video(
+          DraftyVideo(
+            ref: 'v',
+            width: 2,
+            height: 1,
+            duration: const Duration(seconds: 9),
+            preview: Uint8List.fromList([1, 2, 3]),
+            previewMimeType: 'image/jpeg',
+          ),
+          caption: 'Watch',
+        ),
       ]) {
         final again = Drafty.fromJson(
           jsonDecode(jsonEncode(drafty.toJson())) as Json,
@@ -247,6 +295,7 @@ void main() {
         expect(again, drafty);
         expect(again.images, drafty.images);
         expect(again.files, drafty.files);
+        expect(again.videos, drafty.videos);
       }
     });
   });

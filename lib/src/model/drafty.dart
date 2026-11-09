@@ -52,6 +52,18 @@ final class Drafty with ValueObject {
     entities: [Entity(type: Entity.imageType, data: image.toData())],
   );
 
+  /// A video with an optional [caption] under it, as TinodeWeb sends it
+  /// (`insertVideo`): laid out like [Drafty.image].
+  factory Drafty.video(DraftyVideo video, {String caption = ''}) => Drafty(
+    text: caption.isEmpty ? ' ' : '  $caption',
+    spans: [
+      const Span(at: 0, length: 1, entityIndex: 0),
+      if (caption.isNotEmpty)
+        const Span(at: 1, length: 1, style: Span.lineBreakStyle),
+    ],
+    entities: [Entity(type: Entity.videoType, data: video.toData())],
+  );
+
   /// A voice message, as tinode-js's `insertAudio` writes it: one space
   /// marked as an `AU` entity.
   factory Drafty.audio(DraftyAudio audio) => Drafty(
@@ -77,14 +89,19 @@ final class Drafty with ValueObject {
     for (final entity in _linkedEntities) ?entity.asImage,
   ];
 
-  /// The files (`EX`, and audio and video read as files), in the order of
-  /// their spans, attachments at `-1` included.
+  /// The videos, in the order of their spans.
+  List<DraftyVideo> get videos => [
+    for (final entity in _linkedEntities) ?entity.asVideo,
+  ];
+
+  /// The files (`EX`, and audio read as files), in the order of their
+  /// spans, attachments at `-1` included. Videos are in [videos].
   List<DraftyFile> get files => [
     for (final entity in _linkedEntities) ?entity.asFile,
   ];
 
-  /// The text to show under the attachments: without the images'
-  /// placeholders, with line breaks, trimmed.
+  /// The text to show under the attachments: without the images' and
+  /// videos' placeholders, with line breaks, trimmed.
   String get caption {
     final shown = <String?>[
       for (final rune in text.runes) String.fromCharCode(rune),
@@ -93,7 +110,8 @@ final class Drafty with ValueObject {
       final String? replacement;
       if (span.style == Span.lineBreakStyle) {
         replacement = '\n';
-      } else if (_entityOf(span)?.type == Entity.imageType) {
+      } else if (_entityOf(span)?.type
+          case Entity.imageType || Entity.videoType) {
         replacement = null;
       } else {
         continue;
@@ -203,7 +221,7 @@ final class Entity with ValueObject {
   /// `AU`: an audio recording, see [DraftyAudio].
   static const audioType = 'AU';
 
-  /// `VD`: a video, read as a [DraftyFile].
+  /// `VD`: a video, see [DraftyVideo].
   static const videoType = 'VD';
 
   static const Set<String> _fileTypes = {
@@ -220,11 +238,15 @@ final class Entity with ValueObject {
   DraftyImage? get asImage =>
       type == imageType ? DraftyImage.fromData(data) : null;
 
-  /// The file this entity is (`EX`, `AU` or `VD`), or null for other types.
+  /// The video this entity is, or null for other types.
+  DraftyVideo? get asVideo =>
+      type == videoType ? DraftyVideo.fromData(data) : null;
+
+  /// The file this entity is (`EX` or `AU`), or null for other types.
   /// An `AU` entity is a [DraftyAudio].
   DraftyFile? get asFile => switch (type) {
     audioType => DraftyAudio.fromData(data),
-    fileType || videoType => DraftyFile.fromData(data),
+    fileType => DraftyFile.fromData(data),
     _ => null,
   };
 
@@ -279,15 +301,7 @@ class DraftyFile with ValueObject {
   final String? inlineData;
 
   /// [inlineData] decoded; null when absent or not base64.
-  Uint8List? get bytes {
-    final data = inlineData;
-    if (data == null || data.isEmpty) return null;
-    try {
-      return base64.decode(base64.normalize(data));
-    } on FormatException {
-      return null;
-    }
-  }
+  Uint8List? get bytes => _decodeBase64(inlineData);
 
   /// The entity's `data`.
   Json toData() => {
@@ -328,7 +342,7 @@ final class DraftyAudio extends DraftyFile {
         final ms? when ms >= 0 => Duration(milliseconds: ms.toInt()),
         _ => null,
       },
-      preview: _decodePreview(j.get('preview')),
+      preview: _decodeBase64(j.get('preview')),
     );
   }
 
@@ -339,15 +353,6 @@ final class DraftyAudio extends DraftyFile {
   /// loudest point), sent as base64 (`preview`). TinodeWeb and Tindroid
   /// send 96 of them.
   final Uint8List? preview;
-
-  static Uint8List? _decodePreview(String? data) {
-    if (data == null || data.isEmpty) return null;
-    try {
-      return base64.decode(base64.normalize(data));
-    } on FormatException {
-      return null;
-    }
-  }
 
   @override
   Json toData() => {
@@ -410,4 +415,94 @@ final class DraftyImage extends DraftyFile {
     width,
     height,
   ];
+}
+
+/// A video in a Drafty document (`VD`): a [DraftyFile] with its size in
+/// pixels, its [duration] and a poster, sent inline ([preview], of
+/// [previewMimeType]) or uploaded ([previewRef]).
+final class DraftyVideo extends DraftyFile {
+  const DraftyVideo({
+    super.mimeType,
+    super.name,
+    super.size,
+    super.ref,
+    super.inlineData,
+    this.width,
+    this.height,
+    this.duration,
+    this.preview,
+    this.previewMimeType,
+    this.previewRef,
+  });
+
+  factory DraftyVideo.fromData(Json data) {
+    final file = DraftyFile.fromData(data);
+    final j = LooseJson(data);
+    return DraftyVideo(
+      mimeType: file.mimeType,
+      name: file.name,
+      size: file.size,
+      ref: file.ref,
+      inlineData: file.inlineData,
+      width: j.get<num>('width')?.toInt(),
+      height: j.get<num>('height')?.toInt(),
+      duration: switch (j.get<num>('duration')) {
+        final ms? when ms >= 0 => Duration(milliseconds: ms.toInt()),
+        _ => null,
+      },
+      preview: _decodeBase64(j.get('preview')),
+      previewMimeType: j.get('premime'),
+      previewRef: j.get('preref'),
+    );
+  }
+
+  final int? width;
+  final int? height;
+
+  /// How long it plays (`duration`, in milliseconds).
+  final Duration? duration;
+
+  /// The poster image itself (`preview`, base64 on the wire).
+  final Uint8List? preview;
+
+  /// The poster's type (`premime`), e.g. `image/jpeg`.
+  final String? previewMimeType;
+
+  /// The poster's upload (`preref`), when it isn't inline.
+  final String? previewRef;
+
+  @override
+  Json toData() => {
+    ...super.toData(),
+    'width': ?width,
+    'height': ?height,
+    'duration': ?duration?.inMilliseconds,
+    if (preview case final preview?) 'preview': base64.encode(preview),
+    'premime': ?previewMimeType,
+    'preref': ?previewRef,
+  };
+
+  @override
+  List<Object?> get props => [
+    mimeType,
+    name,
+    size,
+    ref,
+    inlineData,
+    width,
+    height,
+    duration,
+    preview,
+    previewMimeType,
+    previewRef,
+  ];
+}
+
+Uint8List? _decodeBase64(String? data) {
+  if (data == null || data.isEmpty) return null;
+  try {
+    return base64.decode(base64.normalize(data));
+  } on FormatException {
+    return null;
+  }
 }

@@ -1,3 +1,16 @@
+## Unreleased
+
+Videos.
+
+- `DraftyVideo`: a `VD` entity, a `DraftyFile` with its `width`, `height`,
+  `duration` and poster (`preview` with `previewMimeType`, or `previewRef`), as
+  tinode-js's `insertVideo` writes it. `Entity.asVideo` and `Drafty.videos`
+  return them.
+- **Breaking:** `Entity.asFile` and `Drafty.files` no longer return `VD`
+  entities as plain files.
+- `Drafty.video(video, caption:)` builds a video message like `Drafty.image`.
+- `Drafty.caption` leaves out a video's placeholder, as it does an image's.
+
 ## 0.10.0
 
 Voice messages.
