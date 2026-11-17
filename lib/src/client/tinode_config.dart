@@ -13,6 +13,7 @@ final class TinodeConfig {
     this.reconnect = const ReconnectPolicy(),
     this.probeAfter = const Duration(seconds: 25),
     this.probeTimeout = const Duration(seconds: 10),
+    this.background = false,
   });
 
   /// Base WebSocket URL of the server, e.g. `wss://chat.example.com`.
@@ -41,6 +42,12 @@ final class TinodeConfig {
   /// How long a probe may go unanswered before the socket counts as dead.
   final Duration probeTimeout;
 
+  /// Whether the session runs in the background, e.g. to fetch what a push
+  /// announced while the app is closed (`hi` with `bkg`): the server tells
+  /// others the user is online only after 5 seconds, so a short fetch never
+  /// shows them online.
+  final bool background;
+
   /// A copy with the given fields replaced; null keeps a field as it is.
   TinodeConfig copyWith({
     Uri? server,
@@ -52,6 +59,7 @@ final class TinodeConfig {
     ReconnectPolicy? reconnect,
     Duration? probeAfter,
     Duration? probeTimeout,
+    bool? background,
   }) => TinodeConfig(
     server: server ?? this.server,
     apiKey: apiKey ?? this.apiKey,
@@ -62,6 +70,7 @@ final class TinodeConfig {
     reconnect: reconnect ?? this.reconnect,
     probeAfter: probeAfter ?? this.probeAfter,
     probeTimeout: probeTimeout ?? this.probeTimeout,
+    background: background ?? this.background,
   );
 
   Uri get channelsUri => server.replace(

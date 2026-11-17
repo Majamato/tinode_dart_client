@@ -90,4 +90,5 @@ Hi _hi(TinodeConfig config, String? device) => Hi(
   lang: config.language,
   dev: device,
   platf: config.platform?.name,
+  bkg: config.background,
 );

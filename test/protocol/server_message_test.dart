@@ -230,6 +230,22 @@ void main() {
     );
   });
 
+  test('pres msg names its sender', () {
+    expect(
+      parse(
+        '{"pres":{"topic":"me","src":"grpX","what":"msg","seq":4,'
+        '"act":"usrS8SZdtb3xS0"}}',
+      ),
+      const PresMessage(
+        topic: 'me',
+        source: 'grpX',
+        event: PresenceEvent.message,
+        seq: 4,
+        actor: 'usrS8SZdtb3xS0',
+      ),
+    );
+  });
+
   test('pres and info', () {
     expect(
       parse(

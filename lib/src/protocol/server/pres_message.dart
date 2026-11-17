@@ -42,6 +42,7 @@ final class PresMessage extends ServerMessage {
     this.source,
     this.seq,
     this.userAgent,
+    this.actor,
     this.lastDeleteId,
     this.deletedRanges = const [],
   });
@@ -55,6 +56,7 @@ final class PresMessage extends ServerMessage {
       source: r.optional('src', 'pres'),
       seq: r.optional('seq', 'pres'),
       userAgent: r.optional('ua', 'pres'),
+      actor: r.optional('act', 'pres'),
       lastDeleteId: r.optional('clear', 'pres'),
       deletedRanges: r.list('delseq', 'pres', SeqRange.fromJson),
     );
@@ -69,6 +71,10 @@ final class PresMessage extends ServerMessage {
   final int? seq;
   final String? userAgent;
 
+  /// The user who caused the event (`act`): on [PresenceEvent.message],
+  /// the sender.
+  final String? actor;
+
   /// On [PresenceEvent.deleted]: the delete ID of the deletion (`clear`).
   final int? lastDeleteId;
 
@@ -82,6 +88,7 @@ final class PresMessage extends ServerMessage {
     source,
     seq,
     userAgent,
+    actor,
     lastDeleteId,
     deletedRanges,
   ];

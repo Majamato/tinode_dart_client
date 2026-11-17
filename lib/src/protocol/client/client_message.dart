@@ -35,6 +35,7 @@ final class Hi extends ClientMessage {
     this.lang,
     this.dev,
     this.platf,
+    this.bkg = false,
   });
 
   final String ver;
@@ -42,6 +43,9 @@ final class Hi extends ClientMessage {
   final String? lang;
   final String? dev;
   final String? platf;
+
+  /// A background session: the server defers its online status.
+  final bool bkg;
 
   @override
   String get type => 'hi';
@@ -53,6 +57,7 @@ final class Hi extends ClientMessage {
     'lang': ?lang,
     'dev': ?dev,
     'platf': ?platf,
+    if (bkg) 'bkg': true,
   };
 }
 
@@ -127,13 +132,19 @@ final class Get extends ClientMessage {
 
   /// [ifModifiedSince] returns only the subscriptions changed or removed
   /// since, the unchanged `public` and `private` left out. [userId] asks
-  /// for that one member only.
-  Get.sub(String topic, {DateTime? ifModifiedSince, int? limit, String? userId})
-    : this._(topic, 'sub', {
-        'ims': ?ifModifiedSince?.wire,
-        'limit': ?limit,
-        'user': ?userId,
-      });
+  /// for that one member only; on `me`, [chat] asks for that one chat.
+  Get.sub(
+    String topic, {
+    DateTime? ifModifiedSince,
+    int? limit,
+    String? userId,
+    String? chat,
+  }) : this._(topic, 'sub', {
+         'ims': ?ifModifiedSince?.wire,
+         'limit': ?limit,
+         'user': ?userId,
+         'topic': ?chat,
+       });
 
   /// Messages with `since <= seq < before`.
   Get.data(String topic, {int? since, int? before, int? limit})

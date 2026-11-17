@@ -314,22 +314,30 @@ final class TinodeClient {
   /// On `me` these are the user's chats; elsewhere, the topic's members,
   /// each with its `userId`, `public` profile, `access` and the `read` and
   /// `received` counters receipts are made of. [userId] asks for one
-  /// member; `[]` then means they aren't one.
+  /// member; `[]` then means they aren't one. On `me`, [chat] asks for that
+  /// one chat, with its `public`; `[]` then means the user has no such chat.
   ///
   /// With [ifModifiedSince] only the subscriptions changed since come back,
   /// and those removed since carry `deleted`. A `public` or `private` left
   /// out of them is unchanged, not cleared. Nothing changed gives `[]`.
+  ///
+  /// The server answers at most its `max_results` (1024 by default), and a
+  /// [limit] can only lower that. Without [ifModifiedSince] they are any
+  /// of the subscriptions, in no order; with it, the ones changed the
+  /// longest ago first. Nothing in the answer says it was cut.
   Future<List<Subscription>> getSubscriptions(
     String topic, {
     DateTime? ifModifiedSince,
     int? limit,
     String? userId,
+    String? chat,
   }) async {
     final get = Get.sub(
       topic,
       ifModifiedSince: ifModifiedSince,
       limit: limit,
       userId: userId,
+      chat: chat,
     );
     try {
       return switch (await _supervisor.connection.request(get)) {

@@ -73,6 +73,18 @@ void main() {
       expect(client.serverInfo.build, 'x');
     });
 
+    test('a background session says so in its hi', () async {
+      final server = FakeServer();
+      final connecting = TinodeClient.connect(
+        connector: (_) async => server.client,
+        config.copyWith(background: true),
+      );
+      final hi = await server.next('hi');
+      expect(hi['bkg'], isTrue);
+      server.ctrl(hi, code: 201, params: {'ver': '0.25', 'build': 'x'});
+      addTearDown((await connecting).close);
+    });
+
     test('a rejected hi throws and closes the socket', () async {
       final server = FakeServer();
       final connecting = TinodeClient.connect(
@@ -741,6 +753,26 @@ void main() {
         expect(get['sub'], {'ims': '2026-10-01T08:30:00.250Z', 'limit': 10});
         server.ctrl(get, code: 204);
         expect(await subs, isEmpty);
+      });
+
+      test('getSubscriptions asks me for one chat', () async {
+        final subs = client.getSubscriptions('me', chat: 'grpX');
+        final get = await server.next('get');
+        expect(get['sub'], {'topic': 'grpX'});
+        server.send({
+          'meta': {
+            'id': get['id'],
+            'topic': 'me',
+            'ts': '2026-10-01T08:30:00.000Z',
+            'sub': [
+              {
+                'topic': 'grpX',
+                'public': {'fn': 'Hikers'},
+              },
+            ],
+          },
+        });
+        expect((await subs).single.public?.name, 'Hikers');
       });
 
       test('nothing modified gives no subscriptions', () async {

@@ -1,5 +1,14 @@
 ## Unreleased
 
+- `getSubscriptions(chat:)` and `Get.sub(chat:)`: on `me`, ask for one chat
+  (`sub: {topic: …}`), with its `public`. The doc of `getSubscriptions` says the
+  server cuts its answer at `max_results` without saying so.
+- `PresMessage.actor`: who caused the event (`act`); on a `pres msg`, the
+  sender.
+- `TinodeConfig.background`: the session says it runs in the background
+  (`hi` with `bkg`), so the server defers its online status by 5 seconds and a
+  short fetch never shows the user online.
+
 Videos.
 
 - `DraftyVideo`: a `VD` entity, a `DraftyFile` with its `width`, `height`,
